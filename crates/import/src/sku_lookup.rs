@@ -9,7 +9,7 @@ pub async fn lookup_existing_skus(
     pool: &MySqlPool,
     skus: &[String],
     batch_size: usize,
-) -> Result<HashMap<String, u32>, sqlx::Error> {
+) -> Result<HashMap<String, u64>, sqlx::Error> {
     let mut map = HashMap::with_capacity(skus.len());
     if skus.is_empty() {
         return Ok(map);
@@ -19,7 +19,7 @@ pub async fn lookup_existing_skus(
         let placeholders = vec!["?"; chunk.len()].join(",");
         let sql = format!("SELECT entity_id, sku FROM catalog_product_entity WHERE sku IN ({placeholders})");
 
-        let mut query = sqlx::query_as::<_, (u32, String)>(&sql);
+        let mut query = sqlx::query_as::<_, (u64, String)>(&sql);
         for sku in chunk {
             query = query.bind(sku);
         }

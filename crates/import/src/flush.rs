@@ -127,7 +127,7 @@ mod tests {
     /// is a race -- one test's cleanup can wipe another test's in-flight
     /// data mid-run. Distinct SKUs per test sidesteps that entirely instead
     /// of serializing tests with a lock.
-    async fn scratch_product(pool: &MySqlPool, sku: &str) -> u32 {
+    async fn scratch_product(pool: &MySqlPool, sku: &str) -> u64 {
         sqlx::query("DELETE FROM catalog_product_entity WHERE sku = ?")
             .bind(sku)
             .execute(pool)
@@ -139,7 +139,7 @@ mod tests {
             .execute(pool)
             .await
             .expect("scratch product insert must succeed")
-            .last_insert_id() as u32
+            .last_insert_id()
     }
 
     async fn delete_scratch_product(pool: &MySqlPool, sku: &str) {
@@ -193,7 +193,7 @@ mod tests {
             item_id: 0,
             product_id: entity_id,
             stock_id: DEFAULT_STOCK_ID,
-            qty: 42.0,
+            qty: Some(42.0),
             min_qty: 0.0,
             is_qty_decimal: 0,
             backorders: 0,
@@ -227,12 +227,12 @@ mod tests {
             entity_id,
             customer_group_id: 0,
             website_id: 1,
-            tax_class_id: 0,
-            price: 12.34,
-            final_price: 10.0,
-            min_price: 10.0,
-            max_price: 12.34,
-            tier_price: 0.0,
+            tax_class_id: Some(0),
+            price: Some(12.34),
+            final_price: Some(10.0),
+            min_price: Some(10.0),
+            max_price: Some(12.34),
+            tier_price: Some(0.0),
         }];
         flush_price(&pool, &rows, 500).await.unwrap();
 

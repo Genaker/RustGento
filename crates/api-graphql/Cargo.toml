@@ -6,3 +6,17 @@ version.workspace = true
 [dependencies]
 entity.workspace = true
 repository.workspace = true
+config.workspace = true
+async-graphql = "7"
+async-graphql-axum = "7"
+axum = "0.8"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+base64 = "0.22"
+url = "2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

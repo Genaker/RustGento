@@ -16,7 +16,7 @@ pub async fn insert_new_products(
     type_id: &str,
     attribute_set_id: u16,
     batch_size: usize,
-) -> Result<HashMap<String, u32>, sqlx::Error> {
+) -> Result<HashMap<String, u64>, sqlx::Error> {
     let mut map = HashMap::with_capacity(skus.len());
     if skus.is_empty() {
         return Ok(map);
@@ -30,9 +30,9 @@ pub async fn insert_new_products(
         });
 
         let result = qb.build().execute(pool).await?;
-        let first_id = result.last_insert_id() as u32;
+        let first_id = result.last_insert_id();
         for (i, sku) in chunk.iter().enumerate() {
-            map.insert(sku.clone(), first_id + i as u32);
+            map.insert(sku.clone(), first_id + i as u64);
         }
     }
 

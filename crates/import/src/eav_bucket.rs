@@ -11,7 +11,7 @@ use std::collections::HashMap;
 /// `catalog_product_entity_*` tables.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EavValue<T> {
-    pub entity_id: u32,
+    pub entity_id: u64,
     pub attribute_id: u16,
     pub store_id: u16,
     pub value: T,
@@ -46,7 +46,7 @@ impl BucketedEav {
 /// bucketing has no single-column "gate" semantics the way stock/price do.
 pub fn bucket_rows(
     csv: &ParsedCsv,
-    sku_to_id: &HashMap<String, u32>,
+    sku_to_id: &HashMap<String, u64>,
     attrs: &AttributesByCode,
     store_id: u16,
 ) -> (BucketedEav, Vec<String>) {
@@ -141,7 +141,7 @@ mod tests {
             attr(4, "description", "text"),
             attr(5, "special_from_date", "datetime"),
         ]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 42u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 42u64)]);
 
         let (bucketed, warnings) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
 
@@ -167,7 +167,7 @@ mod tests {
     fn unknown_column_is_ignored() {
         let csv = parse("sku,mystery_column\nSKU-1,whatever\n");
         let attrs = AttributesByCode::build(&[]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64)]);
         let (bucketed, warnings) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
         assert_eq!(bucketed.total_len(), 0);
         assert!(warnings.is_empty());
@@ -177,7 +177,7 @@ mod tests {
     fn blank_value_is_skipped_without_warning() {
         let csv = parse("sku,name\nSKU-1,\n");
         let attrs = AttributesByCode::build(&[attr(1, "name", "varchar")]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64)]);
         let (bucketed, warnings) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
         assert_eq!(bucketed.total_len(), 0);
         assert!(warnings.is_empty());
@@ -187,7 +187,7 @@ mod tests {
     fn invalid_int_produces_warning_but_does_not_abort_other_columns() {
         let csv = parse("sku,name,color\nSKU-1,Widget,not-a-number\n");
         let attrs = AttributesByCode::build(&[attr(1, "name", "varchar"), attr(2, "color", "int")]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64)]);
         let (bucketed, warnings) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
         assert_eq!(bucketed.varchar.len(), 1, "the valid varchar column should still be imported");
         assert_eq!(bucketed.int.len(), 0);
@@ -200,7 +200,7 @@ mod tests {
     fn invalid_decimal_and_datetime_each_produce_a_warning() {
         let csv = parse("sku,price,special_from_date\nSKU-1,not-a-price,not-a-date\n");
         let attrs = AttributesByCode::build(&[attr(1, "price", "decimal"), attr(2, "special_from_date", "datetime")]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64)]);
         let (bucketed, warnings) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
         assert_eq!(bucketed.total_len(), 0);
         assert_eq!(warnings.len(), 2);
@@ -210,7 +210,7 @@ mod tests {
     fn multiple_rows_are_independent() {
         let csv = parse("sku,name\nSKU-1,Widget\nSKU-2,Gadget\n");
         let attrs = AttributesByCode::build(&[attr(1, "name", "varchar")]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32), ("SKU-2".to_string(), 2u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64), ("SKU-2".to_string(), 2u64)]);
         let (bucketed, _) = bucket_rows(&csv, &sku_to_id, &attrs, 0);
         assert_eq!(bucketed.varchar.len(), 2);
     }
@@ -219,7 +219,7 @@ mod tests {
     fn store_id_is_stamped_onto_every_value() {
         let csv = parse("sku,name\nSKU-1,Widget\n");
         let attrs = AttributesByCode::build(&[attr(1, "name", "varchar")]);
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64)]);
         let (bucketed, _) = bucket_rows(&csv, &sku_to_id, &attrs, 7);
         assert_eq!(bucketed.varchar[0].store_id, 7);
     }

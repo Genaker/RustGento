@@ -74,10 +74,10 @@ pub fn flatten_category(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDateTime;
+    use chrono::{DateTime, NaiveDateTime, Utc};
 
-    fn dt() -> NaiveDateTime {
-        NaiveDateTime::parse_from_str("2026-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+    fn dt() -> DateTime<Utc> {
+        NaiveDateTime::parse_from_str("2026-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap().and_utc()
     }
 
     fn category() -> Category {
@@ -129,7 +129,7 @@ mod tests {
     fn varchar_value_includes_label_and_store_id() {
         let meta = CategoryAttributeMeta::build(&[attr(50, "name", Some("Category Name"))]);
         let rows = CategoryEavRows {
-            varchar: vec![CategoryVarchar { value_id: 1, attribute_id: 50, store_id: 1, entity_id: 2, value: "Shirts".into() }],
+            varchar: vec![CategoryVarchar { value_id: 1, attribute_id: 50, store_id: 1, entity_id: 2, value: Some("Shirts".into()) }],
             ..Default::default()
         };
         let flat = flatten_category(&category(), &rows, &meta);
@@ -142,7 +142,7 @@ mod tests {
     fn label_falls_back_to_attribute_code_when_no_frontend_label() {
         let meta = CategoryAttributeMeta::build(&[attr(51, "is_active", None)]);
         let rows = CategoryEavRows {
-            int: vec![CategoryInt { value_id: 1, attribute_id: 51, store_id: 0, entity_id: 2, value: 1 }],
+            int: vec![CategoryInt { value_id: 1, attribute_id: 51, store_id: 0, entity_id: 2, value: Some(1) }],
             ..Default::default()
         };
         let flat = flatten_category(&category(), &rows, &meta);
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn unknown_attribute_id_falls_back_to_numeric_code_and_label() {
         let rows = CategoryEavRows {
-            text: vec![CategoryText { value_id: 1, attribute_id: 777, store_id: 0, entity_id: 2, value: "desc".into() }],
+            text: vec![CategoryText { value_id: 1, attribute_id: 777, store_id: 0, entity_id: 2, value: Some("desc".into()) }],
             ..Default::default()
         };
         let flat = flatten_category(&category(), &rows, &CategoryAttributeMeta::default());
@@ -164,8 +164,8 @@ mod tests {
     fn text_overlay_after_int_and_varchar_on_collision() {
         let meta = CategoryAttributeMeta::build(&[attr(60, "description", Some("Description"))]);
         let rows = CategoryEavRows {
-            int: vec![CategoryInt { value_id: 1, attribute_id: 60, store_id: 0, entity_id: 2, value: 0 }],
-            text: vec![CategoryText { value_id: 2, attribute_id: 60, store_id: 0, entity_id: 2, value: "final value".into() }],
+            int: vec![CategoryInt { value_id: 1, attribute_id: 60, store_id: 0, entity_id: 2, value: Some(0) }],
+            text: vec![CategoryText { value_id: 2, attribute_id: 60, store_id: 0, entity_id: 2, value: Some("final value".into()) }],
             ..Default::default()
         };
         let flat = flatten_category(&category(), &rows, &meta);

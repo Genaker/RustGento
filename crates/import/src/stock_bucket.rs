@@ -6,12 +6,12 @@ use std::collections::HashMap;
 pub const STOCK_COLUMNS: [&str; 6] =
     ["qty", "is_in_stock", "manage_stock", "min_qty", "max_sale_qty", "min_sale_qty"];
 
-fn default_stock_item(product_id: u32) -> StockItem {
+fn default_stock_item(product_id: u64) -> StockItem {
     StockItem {
         item_id: 0, // unset; DB assigns on insert
         product_id,
         stock_id: DEFAULT_STOCK_ID,
-        qty: 0.0,
+        qty: Some(0.0),
         min_qty: 0.0,
         is_qty_decimal: 0,
         backorders: 0,
@@ -39,7 +39,7 @@ fn default_stock_item(product_id: u32) -> StockItem {
 ///   (`fv, _ := strconv.ParseFloat(...)`, discarding the error). Silently
 ///   writing 0 for an unparseable inventory quantity looks like an oversight
 ///   rather than intended behavior, so this port warns instead.
-pub fn collect_stock(csv: &ParsedCsv, sku_to_id: &HashMap<String, u32>) -> (Vec<StockItem>, Vec<String>) {
+pub fn collect_stock(csv: &ParsedCsv, sku_to_id: &HashMap<String, u64>) -> (Vec<StockItem>, Vec<String>) {
     let mut rows = Vec::new();
     let mut warnings = Vec::new();
 
@@ -65,7 +65,7 @@ pub fn collect_stock(csv: &ParsedCsv, sku_to_id: &HashMap<String, u32>) -> (Vec<
             if let Some(raw) = csv.field(row, col) {
                 match parse_decimal_value(raw) {
                     Ok(v) => {
-                        item.qty = v;
+                        item.qty = Some(v);
                         populated = true;
                     }
                     Err(msg) => {
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn no_stock_columns_present_is_a_no_op() {
         let csv = parse("sku,name\nSKU-1,Widget\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(rows.is_empty());
         assert!(warnings.is_empty());
     }
@@ -149,10 +149,10 @@ mod tests {
     #[test]
     fn valid_qty_produces_a_row_with_stock_defaults() {
         let csv = parse("sku,qty\nSKU-1,50\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(warnings.is_empty());
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].qty, 50.0);
+        assert_eq!(rows[0].qty, Some(50.0));
         assert_eq!(rows[0].is_in_stock, 1, "default is_in_stock when not provided");
         assert_eq!(rows[0].stock_id, DEFAULT_STOCK_ID);
     }
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn valid_is_in_stock_alone_also_produces_a_row() {
         let csv = parse("sku,is_in_stock\nSKU-1,0\n");
-        let (rows, _) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, _) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].is_in_stock, 0);
     }
@@ -169,23 +169,23 @@ mod tests {
     fn min_qty_alone_does_not_produce_a_row() {
         // min_qty is not a "gate" column -- populated stays false.
         let csv = parse("sku,min_qty\nSKU-1,5\n");
-        let (rows, _) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, _) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(rows.is_empty());
     }
 
     #[test]
     fn blank_qty_cell_is_skipped_like_an_absent_column() {
         let csv = parse("sku,qty,is_in_stock\nSKU-1,,1\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(warnings.is_empty());
         assert_eq!(rows.len(), 1, "is_in_stock gate alone is enough");
-        assert_eq!(rows[0].qty, 0.0, "left at default since the qty cell was blank");
+        assert_eq!(rows[0].qty, Some(0.0), "left at default since the qty cell was blank");
     }
 
     #[test]
     fn blank_is_in_stock_cell_is_treated_as_absent() {
         let csv = parse("sku,qty,is_in_stock\nSKU-1,10,\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(warnings.is_empty());
         assert_eq!(rows.len(), 1, "qty gate alone is enough");
         assert_eq!(rows[0].is_in_stock, 1, "left at default since the cell was blank");
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn blank_manage_stock_min_qty_min_sale_qty_max_sale_qty_cells_leave_defaults_untouched() {
         let csv = parse("sku,qty,manage_stock,min_qty,min_sale_qty,max_sale_qty\nSKU-1,10,,,,\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(warnings.is_empty());
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].manage_stock, 1);
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn invalid_is_in_stock_warns_and_abandons_the_row() {
         let csv = parse("sku,is_in_stock,manage_stock\nSKU-1,not-a-number,1\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(rows.is_empty());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("invalid is_in_stock"));
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn manage_stock_min_sale_qty_and_max_sale_qty_are_applied_when_valid() {
         let csv = parse("sku,qty,manage_stock,min_sale_qty,max_sale_qty\nSKU-1,10,0,2,100\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(warnings.is_empty());
         assert_eq!(rows[0].manage_stock, 0);
         assert_eq!(rows[0].min_sale_qty, 2.0);
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn invalid_manage_stock_warns_but_row_is_still_emitted() {
         let csv = parse("sku,qty,manage_stock\nSKU-1,10,not-a-number\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].manage_stock, 1, "left at default rather than silently coerced to zero");
         assert_eq!(warnings.len(), 1);
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn invalid_min_sale_qty_warns_but_row_is_still_emitted() {
         let csv = parse("sku,qty,min_sale_qty\nSKU-1,10,not-a-number\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].min_sale_qty, 0.0);
         assert_eq!(warnings.len(), 1);
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn invalid_max_sale_qty_warns_but_row_is_still_emitted() {
         let csv = parse("sku,qty,max_sale_qty\nSKU-1,10,not-a-number\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].max_sale_qty, 0.0);
         assert_eq!(warnings.len(), 1);
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn invalid_qty_warns_and_abandons_the_row() {
         let csv = parse("sku,qty,is_in_stock\nSKU-1,not-a-number,1\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert!(rows.is_empty(), "row should be abandoned when qty is invalid, even though is_in_stock is valid");
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("sku=SKU-1"));
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn invalid_min_qty_warns_but_row_is_still_emitted() {
         let csv = parse("sku,qty,min_qty\nSKU-1,10,not-a-number\n");
-        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u32)]));
+        let (rows, warnings) = collect_stock(&csv, &HashMap::from([("SKU-1".to_string(), 1u64)]));
         assert_eq!(rows.len(), 1, "qty gate alone is enough to emit a row");
         assert_eq!(rows[0].min_qty, 0.0, "invalid min_qty left at default rather than silently set");
         assert_eq!(warnings.len(), 1);
@@ -278,14 +278,14 @@ mod tests {
     #[test]
     fn blank_sku_is_skipped() {
         let csv = parse("sku,qty\n,10\n");
-        let (rows, _) = collect_stock(&csv, &HashMap::from([("".to_string(), 1u32)]));
+        let (rows, _) = collect_stock(&csv, &HashMap::from([("".to_string(), 1u64)]));
         assert!(rows.is_empty());
     }
 
     #[test]
     fn multiple_rows_are_independent() {
         let csv = parse("sku,qty\nSKU-1,10\nSKU-2,20\n");
-        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u32), ("SKU-2".to_string(), 2u32)]);
+        let sku_to_id = HashMap::from([("SKU-1".to_string(), 1u64), ("SKU-2".to_string(), 2u64)]);
         let (rows, _) = collect_stock(&csv, &sku_to_id);
         assert_eq!(rows.len(), 2);
     }

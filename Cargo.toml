@@ -59,3 +59,7 @@ config.workspace = true
 repository.workspace = true
 import.workspace = true
 anyhow.workspace = true
+api-rest = { path = "crates/api-rest" }
+api-graphql = { path = "crates/api-graphql" }
+api-realtime = { path = "crates/api-realtime" }
+axum = "0.8"

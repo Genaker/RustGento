@@ -32,7 +32,7 @@ pub fn flatten_product(
     product: &Product,
     rows: &ProductEavRows,
     code_map: &AttributeCodeMap,
-    category_ids: &[u32],
+    category_ids: &[u64],
     stock_item: Option<&StockItem>,
     index_prices: &[ProductIndexPrice],
 ) -> Map<String, Value> {
@@ -65,7 +65,7 @@ pub fn flatten_product(
     for v in &rows.datetime {
         out.insert(
             code_map.code_for(v.attribute_id),
-            json!(v.value.format(DATETIME_FMT).to_string()),
+            json!(v.value.map(|dt| dt.format(DATETIME_FMT).to_string())),
         );
     }
 
@@ -108,10 +108,14 @@ pub fn flatten_product(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDateTime;
+    use chrono::{DateTime, NaiveDateTime, Utc};
 
     fn dt(s: &str) -> NaiveDateTime {
         NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap()
+    }
+
+    fn dt_utc(s: &str) -> DateTime<Utc> {
+        dt(s).and_utc()
     }
 
     fn product() -> Product {
@@ -122,8 +126,8 @@ mod tests {
             sku: "SAMPLE-SKU-0042".into(),
             has_options: 0,
             required_options: 0,
-            created_at: dt("2026-01-01 10:00:00"),
-            updated_at: dt("2026-01-02 11:00:00"),
+            created_at: dt_utc("2026-01-01 10:00:00"),
+            updated_at: dt_utc("2026-01-02 11:00:00"),
         }
     }
 
@@ -183,8 +187,8 @@ mod tests {
     #[test]
     fn overlays_varchar_and_decimal_by_attribute_code() {
         let rows = ProductEavRows {
-            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 42, value: "Widget".into() }],
-            decimal: vec![entity::ProductDecimal { value_id: 2, attribute_id: 200, store_id: 0, entity_id: 42, value: 19.99 }],
+            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 42, value: Some("Widget".into()) }],
+            decimal: vec![entity::ProductDecimal { value_id: 2, attribute_id: 200, store_id: 0, entity_id: 42, value: Some(19.99) }],
             ..Default::default()
         };
         let flat = flatten_product(&product(), &rows, &code_map(), &[], None, &[]);
@@ -194,8 +198,7 @@ mod tests {
 
     #[test]
     fn overlays_text_and_datetime_by_attribute_code() {
-        let mut map = code_map();
-        map = crate::attribute_cache::AttributeCodeMap::build(&[
+        let map = crate::attribute_cache::AttributeCodeMap::build(&[
             entity::EavAttribute {
                 attribute_id: 300, entity_type_id: 4, attribute_code: "description".into(),
                 attribute_model: None, backend_model: None, backend_type: "text".into(), backend_table: None,
@@ -210,8 +213,8 @@ mod tests {
             },
         ]);
         let rows = ProductEavRows {
-            text: vec![entity::ProductText { value_id: 1, attribute_id: 300, store_id: 0, entity_id: 42, value: "A nice widget".into() }],
-            datetime: vec![entity::ProductDatetime { value_id: 2, attribute_id: 400, store_id: 0, entity_id: 42, value: dt("2026-03-05 00:00:00") }],
+            text: vec![entity::ProductText { value_id: 1, attribute_id: 300, store_id: 0, entity_id: 42, value: Some("A nice widget".into()) }],
+            datetime: vec![entity::ProductDatetime { value_id: 2, attribute_id: 400, store_id: 0, entity_id: 42, value: Some(dt("2026-03-05 00:00:00")) }],
             ..Default::default()
         };
         let flat = flatten_product(&product(), &rows, &map, &[], None, &[]);
@@ -225,8 +228,8 @@ mod tests {
         // tables — Go's overlay order (varchar -> int -> decimal -> text -> datetime)
         // means int's value should win since it's applied after varchar.
         let rows = ProductEavRows {
-            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 42, value: "from varchar".into() }],
-            int: vec![entity::ProductInt { value_id: 2, attribute_id: 100, store_id: 0, entity_id: 42, value: 7 }],
+            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 42, value: Some("from varchar".into()) }],
+            int: vec![entity::ProductInt { value_id: 2, attribute_id: 100, store_id: 0, entity_id: 42, value: Some(7) }],
             ..Default::default()
         };
         let flat = flatten_product(&product(), &rows, &code_map(), &[], None, &[]);
@@ -236,7 +239,7 @@ mod tests {
     #[test]
     fn unknown_attribute_id_falls_back_to_numeric_key() {
         let rows = ProductEavRows {
-            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 999, store_id: 0, entity_id: 42, value: "mystery".into() }],
+            varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 999, store_id: 0, entity_id: 42, value: Some("mystery".into()) }],
             ..Default::default()
         };
         let flat = flatten_product(&product(), &rows, &code_map(), &[], None, &[]);
@@ -259,7 +262,7 @@ mod tests {
     #[test]
     fn stock_item_present_when_given() {
         let stock = StockItem {
-            item_id: 1, product_id: 42, stock_id: 1, qty: 50.0, min_qty: 0.0,
+            item_id: 1, product_id: 42, stock_id: 1, qty: Some(50.0), min_qty: 0.0,
             is_qty_decimal: 0, backorders: 0, min_sale_qty: 1.0, max_sale_qty: 0.0,
             is_in_stock: 1, manage_stock: 0, website_id: 0,
         };
@@ -271,8 +274,8 @@ mod tests {
     #[test]
     fn index_prices_flattened_as_array() {
         let price = ProductIndexPrice {
-            entity_id: 42, customer_group_id: 0, website_id: 1, tax_class_id: 0,
-            price: 19.99, final_price: 15.99, min_price: 15.99, max_price: 19.99, tier_price: 0.0,
+            entity_id: 42, customer_group_id: 0, website_id: 1, tax_class_id: Some(0),
+            price: Some(19.99), final_price: Some(15.99), min_price: Some(15.99), max_price: Some(19.99), tier_price: Some(0.0),
         };
         let flat = flatten_product(&product(), &ProductEavRows::default(), &code_map(), &[], None, &[price]);
         let prices = flat["index_prices"].as_array().unwrap();

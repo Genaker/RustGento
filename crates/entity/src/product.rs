@@ -1,48 +1,61 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 /// Mirrors Go's `model/entity/product.Product` (table `catalog_product_entity`).
-/// CE schema only — no `row_id` (Enterprise Edition) column, by design (see plan
-/// non-goals: EE support is out of scope for this port).
+/// CE schema only -- no `row_id` (Enterprise Edition) column, by design (see
+/// plan non-goals: EE support is out of scope for this port).
+///
+/// Field types below match the ACTUAL live schema (`DESCRIBE
+/// catalog_product_entity`), not just GORM's Go struct tags -- GORM maps
+/// Go's `int`/`uint` to `bigint`/`bigint unsigned` by default, so several
+/// columns are wider than their Go field names suggest (e.g. `entity_id` is
+/// `bigint unsigned`, and `has_options` is a signed `smallint` despite the Go
+/// field being `uint16`, because its GORM tag says `type:smallint` with no
+/// `unsigned`). Getting this wrong doesn't surface until you actually decode
+/// a row with `sqlx::query_as` -- binding into an INSERT tolerates width
+/// mismatches, but strict decode does not.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Product {
-    pub entity_id: u32,
+    pub entity_id: u64,
     pub attribute_set_id: u16,
     pub type_id: String,
     pub sku: String,
-    pub has_options: u16,
+    pub has_options: i16,
     pub required_options: u16,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 macro_rules! eav_value_table {
     ($name:ident, $value_ty:ty) => {
         #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
         pub struct $name {
-            pub value_id: u32,
+            pub value_id: u64,
             pub attribute_id: u16,
             pub store_id: u16,
-            pub entity_id: u32,
-            pub value: $value_ty,
+            pub entity_id: u64,
+            pub value: Option<$value_ty>,
         }
     };
 }
 
 eav_value_table!(ProductVarchar, String);
-eav_value_table!(ProductInt, i32);
+eav_value_table!(ProductInt, i64);
 eav_value_table!(ProductDecimal, f64);
 eav_value_table!(ProductText, String);
 eav_value_table!(ProductDatetime, NaiveDateTime);
 
-/// Mirrors Go's `StockItem` (table `cataloginventory_stock_item`).
+/// Mirrors Go's `StockItem` (table `cataloginventory_stock_item`). Only the
+/// subset of columns this port actually reads/writes is modeled; sqlx's
+/// derived `FromRow` looks up fields by name and ignores columns not
+/// declared here, so `SELECT *` against the wider real table is fine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct StockItem {
-    pub item_id: u32,
-    pub product_id: u32,
+    pub item_id: u64,
+    pub product_id: u64,
     pub stock_id: u16,
-    pub qty: f64,
+    pub qty: Option<f64>,
     pub min_qty: f64,
     pub is_qty_decimal: u16,
     pub backorders: u16,
@@ -56,19 +69,19 @@ pub struct StockItem {
 /// Mirrors Go's `ProductIndexPrice` (table `catalog_product_index_price`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct ProductIndexPrice {
-    pub entity_id: u32,
-    pub customer_group_id: u32,
+    pub entity_id: u64,
+    pub customer_group_id: u64,
     pub website_id: u16,
-    pub tax_class_id: u16,
-    pub price: f64,
-    pub final_price: f64,
-    pub min_price: f64,
-    pub max_price: f64,
-    pub tier_price: f64,
+    pub tax_class_id: Option<u16>,
+    pub price: Option<f64>,
+    pub final_price: Option<f64>,
+    pub min_price: Option<f64>,
+    pub max_price: Option<f64>,
+    pub tier_price: Option<f64>,
 }
 
 /// `customer_group_id` used for guest/not-logged-in pricing throughout Magento.
-pub const GUEST_CUSTOMER_GROUP_ID: u32 = 0;
+pub const GUEST_CUSTOMER_GROUP_ID: u64 = 0;
 
 /// Fixed `stock_id` used by single-source (non-MSI) stock rows, matching the
 /// Go import service's hardcoded value.
@@ -78,8 +91,8 @@ pub const DEFAULT_STOCK_ID: u16 = 1;
 mod tests {
     use super::*;
 
-    fn now() -> NaiveDateTime {
-        NaiveDateTime::parse_from_str("2026-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+    fn now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap().with_timezone(&Utc)
     }
 
     #[test]
@@ -101,17 +114,24 @@ mod tests {
 
     #[test]
     fn eav_value_tables_round_trip() {
-        let v = ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 5, value: "hello".into() };
+        let v = ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 5, value: Some("hello".into()) };
         let json = serde_json::to_string(&v).unwrap();
         assert_eq!(serde_json::from_str::<ProductVarchar>(&json).unwrap(), v);
 
-        let i = ProductInt { value_id: 2, attribute_id: 101, store_id: 0, entity_id: 5, value: 42 };
+        let i = ProductInt { value_id: 2, attribute_id: 101, store_id: 0, entity_id: 5, value: Some(42) };
         let json = serde_json::to_string(&i).unwrap();
         assert_eq!(serde_json::from_str::<ProductInt>(&json).unwrap(), i);
 
-        let d = ProductDecimal { value_id: 3, attribute_id: 102, store_id: 0, entity_id: 5, value: 9.99 };
+        let d = ProductDecimal { value_id: 3, attribute_id: 102, store_id: 0, entity_id: 5, value: Some(9.99) };
         let json = serde_json::to_string(&d).unwrap();
         assert_eq!(serde_json::from_str::<ProductDecimal>(&json).unwrap(), d);
+    }
+
+    #[test]
+    fn eav_value_can_be_null() {
+        let v = ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 5, value: None };
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(serde_json::from_str::<ProductVarchar>(&json).unwrap(), v);
     }
 
     #[test]
@@ -126,7 +146,7 @@ mod tests {
             item_id: 1,
             product_id: 5,
             stock_id: DEFAULT_STOCK_ID,
-            qty: 100.0,
+            qty: Some(100.0),
             min_qty: 0.0,
             is_qty_decimal: 0,
             backorders: 0,
@@ -146,12 +166,12 @@ mod tests {
             entity_id: 5,
             customer_group_id: GUEST_CUSTOMER_GROUP_ID,
             website_id: 1,
-            tax_class_id: 0,
-            price: 9.99,
-            final_price: 9.99,
-            min_price: 9.99,
-            max_price: 9.99,
-            tier_price: 0.0,
+            tax_class_id: Some(0),
+            price: Some(9.99),
+            final_price: Some(9.99),
+            min_price: Some(9.99),
+            max_price: Some(9.99),
+            tier_price: Some(0.0),
         };
         let json = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<ProductIndexPrice>(&json).unwrap(), p);

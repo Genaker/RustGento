@@ -7,20 +7,43 @@ modification of GoGento.
 
 See the implementation plan for full scope, architecture, and phasing.
 
-## Status: Phase A complete
+## Status: Phases A–D complete
 
 - `entity` — EAV data model (CE schema only; see non-goals)
 - `config` — env-driven config, MySQL pool construction
-- `repository` — EAV flattening logic + in-process flat cache
+- `repository` — EAV flattening logic, batched DB fetch/CRUD, in-process flat cache, category tree
 - `import` — CSV → EAV bulk import pipeline (the benchmarked path)
+- `api-rest` — REST API: products/categories/stock endpoints, basic/key auth with
+  Go's exact skip-list, timing headers, gzip
+- `api-graphql` — GraphQL: full schema (products, categories, category tree,
+  Magento/Venia-compatible `magentoProducts`/`magentoCategories`, store-ID
+  resolution from header/variable/query-param), `search`/`_extension` stubbed
+- `api-realtime` — HMAC-gated realtime price/stock API (Phase D, stretch)
 - `bin/import_cli.rs` (`gogento-import`) — standalone benchmark CLI
+- `src/main.rs` (`gogento-server`) — the actual HTTP server, all three API
+  layers merged into one `axum::Router` and served together
 
-Phases B (REST API), C (GraphQL), D (realtime HMAC API) are not yet built.
+Verified end-to-end against a live MySQL instance: full REST CRUD lifecycle,
+every GraphQL query in the schema, and the HMAC-gated realtime endpoint
+(cross-verified with an independent Python HMAC implementation, not just
+self-consistently).
+
+## Running the server
+
+```bash
+cp .env.example .env   # point MYSQL_HOST/PORT at your MySQL instance
+cargo build --release --bin gogento-server
+./target/release/gogento-server
+# REST:      curl -u admin:secret http://localhost:8080/api/products/flat?limit=5
+# GraphQL:   curl -X POST -H 'Content-Type: application/json' \
+#              -d '{"query":"query { products(pageSize:5){ items { sku name } } }"}' \
+#              http://localhost:8080/graphql
+# Realtime:  curl http://localhost:8080/api/realtime/stock?sku=<sku>
+```
 
 ## Running the import benchmark
 
 ```bash
-cp .env.example .env   # point MYSQL_HOST/PORT at your MySQL instance
 cargo build --release --bin gogento-import
 ./target/release/gogento-import --file path/to/products.csv --batch-size 500
 ```
@@ -39,13 +62,20 @@ default `mysql://magento:magento@127.0.0.1:3309/magento` (this project's dev
 They skip gracefully (not fail) if that database isn't reachable, mirroring
 GoGento's own `t.Skip`-on-no-DB test pattern.
 
-Coverage (`cargo llvm-cov -p entity -p config -p repository -p import`, with
-the dev database up): **99.9% lines, 99.26% regions, 99.61% functions** across
-130 tests. The remaining ~0.7% is `?`-propagated `sqlx::Error` branches inside
-DB calls that only trigger on an actual connection/query failure mid-operation
-— not reachable without deliberately breaking the database, and not mocked
-here since mocking sqlx's wire protocol wouldn't meaningfully test anything
-beyond what the pure logic tests already cover.
+REST/GraphQL/realtime handlers are tested the same way, but through their
+actual axum routers via `tower::ServiceExt::oneshot` (REST/realtime) or
+`Schema::execute` (GraphQL) — full HTTP-level request/response round trips
+against the live DB, not mocks: CRUD lifecycles, auth skip-list behavior
+(including once nested under the full app), cache warm/cold paths, pagination
+edge cases, and the HMAC gate's accept/reject paths.
+
+Coverage (`cargo llvm-cov --workspace`, with the dev database up): **96.0%
+regions, 96.9% functions, 97.9% lines** across 238 tests. The remaining ~2-4%
+is almost entirely `?`-propagated `sqlx::Error` branches inside DB calls that
+only trigger on an actual connection/query failure mid-operation — not
+reachable without deliberately breaking the database, and not mocked here
+since mocking sqlx's wire protocol wouldn't meaningfully test anything beyond
+what the pure logic tests already cover.
 
 ## Go vs Rust benchmark: product import
 

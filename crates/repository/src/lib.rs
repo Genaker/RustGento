@@ -9,12 +9,19 @@
 
 pub mod attribute_cache;
 pub mod batching;
+pub mod category_db;
 pub mod category_repo;
 pub mod flat_cache;
+pub mod product_db;
 pub mod product_repo;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use attribute_cache::AttributeCodeMap;
 pub use batching::chunk_ids;
+pub use category_db::{build_tree, CategoryTreeNode};
 pub use category_repo::{flatten_category, CategoryAttributeMeta, CategoryEavRows};
 pub use flat_cache::FlatCache;
+pub use product_db::ProductInput;
 pub use product_repo::{flatten_product, ProductEavRows};

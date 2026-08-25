@@ -11,7 +11,7 @@ use std::sync::RwLock;
 /// benchmark comparison, not a bug to "fix".
 #[derive(Debug, Default)]
 pub struct FlatCache {
-    inner: RwLock<HashMap<u16, HashMap<u32, Value>>>,
+    inner: RwLock<HashMap<u16, HashMap<u64, Value>>>,
 }
 
 impl FlatCache {
@@ -23,7 +23,7 @@ impl FlatCache {
     /// `None` unconditionally when `bypass` is true — the caller passes in
     /// `!config::product_flat_cache_enabled()` (i.e. `PRODUCT_FLAT_CACHE=off`),
     /// keeping this crate decoupled from the `config` crate.
-    pub fn get(&self, bypass: bool, store_id: u16, entity_id: u32) -> Option<Value> {
+    pub fn get(&self, bypass: bool, store_id: u16, entity_id: u64) -> Option<Value> {
         if bypass {
             return None;
         }
@@ -38,7 +38,7 @@ impl FlatCache {
     /// Populates the cache for one (store_id, entity_id). A no-op when
     /// `bypass` is true, matching Go's behavior of never populating the
     /// cache while `PRODUCT_FLAT_CACHE=off`.
-    pub fn put(&self, bypass: bool, store_id: u16, entity_id: u32, value: Value) {
+    pub fn put(&self, bypass: bool, store_id: u16, entity_id: u64, value: Value) {
         if bypass {
             return;
         }

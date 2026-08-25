@@ -1,53 +1,57 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 /// Mirrors Go's `model/entity/category.Category` (table `catalog_category_entity`).
+/// See `product.rs`'s doc comment for why field widths/nullability here
+/// follow the live `DESCRIBE` output rather than Go's field names: GORM maps
+/// Go's `int` to `bigint` by default, so `position`/`level`/`children_count`
+/// are 64-bit despite reading like small numbers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Category {
-    pub entity_id: u32,
+    pub entity_id: u64,
     pub attribute_set_id: u16,
     pub parent_id: u32,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub path: String,
-    pub position: i32,
-    pub level: i32,
-    pub children_count: i32,
+    pub position: i64,
+    pub level: i64,
+    pub children_count: i64,
 }
 
 macro_rules! category_value_table {
     ($name:ident, $value_ty:ty) => {
         #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
         pub struct $name {
-            pub value_id: u32,
+            pub value_id: u64,
             pub attribute_id: u16,
             pub store_id: u16,
-            pub entity_id: u32,
-            pub value: $value_ty,
+            pub entity_id: u64,
+            pub value: Option<$value_ty>,
         }
     };
 }
 
-category_value_table!(CategoryInt, i32);
+category_value_table!(CategoryInt, i64);
 category_value_table!(CategoryVarchar, String);
 category_value_table!(CategoryText, String);
 
 /// Mirrors Go's `CategoryProduct` (join table `catalog_category_product`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct CategoryProduct {
-    pub entity_id: u32,
-    pub category_id: u32,
+    pub entity_id: u64,
+    pub category_id: u64,
     pub product_id: u32,
-    pub position: i32,
+    pub position: i64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn now() -> NaiveDateTime {
-        NaiveDateTime::parse_from_str("2026-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+    fn now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap().with_timezone(&Utc)
     }
 
     #[test]
@@ -69,11 +73,11 @@ mod tests {
 
     #[test]
     fn category_value_tables_round_trip() {
-        let v = CategoryVarchar { value_id: 1, attribute_id: 40, store_id: 0, entity_id: 2, value: "Shirts".into() };
+        let v = CategoryVarchar { value_id: 1, attribute_id: 40, store_id: 0, entity_id: 2, value: Some("Shirts".into()) };
         let json = serde_json::to_string(&v).unwrap();
         assert_eq!(serde_json::from_str::<CategoryVarchar>(&json).unwrap(), v);
 
-        let i = CategoryInt { value_id: 2, attribute_id: 41, store_id: 0, entity_id: 2, value: 1 };
+        let i = CategoryInt { value_id: 2, attribute_id: 41, store_id: 0, entity_id: 2, value: Some(1) };
         let json = serde_json::to_string(&i).unwrap();
         assert_eq!(serde_json::from_str::<CategoryInt>(&json).unwrap(), i);
     }
