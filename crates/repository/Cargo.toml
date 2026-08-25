@@ -1,0 +1,15 @@
+[package]
+name = "repository"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+entity.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }

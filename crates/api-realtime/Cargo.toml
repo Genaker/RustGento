@@ -1,0 +1,8 @@
+[package]
+name = "api-realtime"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+entity.workspace = true
+repository.workspace = true

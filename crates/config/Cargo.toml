@@ -1,0 +1,12 @@
+[package]
+name = "config"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+dotenvy.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }

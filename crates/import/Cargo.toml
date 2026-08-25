@@ -1,0 +1,16 @@
+[package]
+name = "import"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+entity.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+csv = "1"
+serde.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
