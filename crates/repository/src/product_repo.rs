@@ -4,8 +4,7 @@ use serde_json::{json, Map, Value};
 
 const DATETIME_FMT: &str = "%Y-%m-%d %H:%M:%S";
 
-/// All EAV value rows for a single product, one `Vec` per backend-type table —
-/// mirrors the GORM `Preload`ed slices on Go's `Product` struct.
+/// All EAV value rows for a single product, one `Vec` per backend-type table.
 #[derive(Debug, Clone, Default)]
 pub struct ProductEavRows {
     pub varchar: Vec<ProductVarchar>,
@@ -16,17 +15,15 @@ pub struct ProductEavRows {
 }
 
 /// Flattens a product's static fields + EAV values into one `attribute_code -> value`
-/// map, matching Go's `FlattenProductAttributesWithCodes` in
-/// `model/repository/product/product_repository.go`:
+/// map:
 ///
 /// 1. Seed static keys: entity_id, sku, type_id, created_at, updated_at.
 /// 2. Overlay varchar -> int -> decimal -> text -> datetime, in that fixed order.
 ///    If two tables define the same attribute_code (attribute_id collision across
-///    types), the later table in this order wins — replicated as-is, not "fixed",
-///    since it's Go's actual observable behavior.
+///    types), the later table in this order wins.
 /// 3. Add category_ids, stock_item (nested object, if present), index_prices
 ///    (array), and media_gallery (always empty for now — gallery import/flatten
-///    is an explicit non-goal for this port, the field is present for schema
+///    is an explicit non-goal for this project; the field is present for schema
 ///    shape parity, not populated).
 pub fn flatten_product(
     product: &Product,
@@ -225,8 +222,8 @@ mod tests {
     #[test]
     fn later_backend_type_wins_on_attribute_id_collision() {
         // Same attribute_id (100, coded "name") present in both varchar and int
-        // tables — Go's overlay order (varchar -> int -> decimal -> text -> datetime)
-        // means int's value should win since it's applied after varchar.
+        // tables — the fixed overlay order (varchar -> int -> decimal -> text
+        // -> datetime) means int's value should win since it's applied after varchar.
         let rows = ProductEavRows {
             varchar: vec![entity::ProductVarchar { value_id: 1, attribute_id: 100, store_id: 0, entity_id: 42, value: Some("from varchar".into()) }],
             int: vec![entity::ProductInt { value_id: 2, attribute_id: 100, store_id: 0, entity_id: 42, value: Some(7) }],

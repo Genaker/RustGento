@@ -1,5 +1,5 @@
-/// Resolves the effective store ID from the three places GoGento's GraphQL
-/// layer accepts it, in priority order: the `Store` request header, the
+/// Resolves the effective store ID from the three places this GraphQL layer
+/// accepts it, in priority order: the `Store` request header, the
 /// `__Store` GraphQL variable in the request body, then the `__Store` query
 /// parameter. The first source that parses to a valid `u16` wins; falls
 /// back to `0` (the default/admin store) if none do.

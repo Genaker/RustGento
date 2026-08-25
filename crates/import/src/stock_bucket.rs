@@ -23,22 +23,19 @@ fn default_stock_item(product_id: u64) -> StockItem {
     }
 }
 
-/// Collects stock upsert rows from CSV, matching Go's `collectStock`
-/// (`service/product/import_stock.go`):
+/// Collects stock upsert rows from CSV:
 ///
 /// - A no-op if the header contains none of [`STOCK_COLUMNS`].
 /// - A row only produces a stock item if `qty` or `is_in_stock` has a valid,
 ///   non-empty value -- the other stock columns alone don't cause a row to
-///   be emitted (matches Go's `populated` gate).
+///   be emitted.
 /// - An invalid `qty` or `is_in_stock` value is a warning that abandons the
-///   rest of that row's stock fields, same as Go: qty/in-stock-ness are
-///   safety-relevant, so a half-applied stock update is worse than none.
+///   rest of that row's stock fields: qty/in-stock-ness are safety-relevant,
+///   so a half-applied stock update is worse than none.
 /// - An invalid `manage_stock`/`min_qty`/`min_sale_qty`/`max_sale_qty` value
-///   is a warning that leaves that one field at its default -- **unlike**
-///   Go, which silently coerces a parse failure on these columns to zero
-///   (`fv, _ := strconv.ParseFloat(...)`, discarding the error). Silently
-///   writing 0 for an unparseable inventory quantity looks like an oversight
-///   rather than intended behavior, so this port warns instead.
+///   is a warning that leaves that one field at its default rather than
+///   silently coercing the parse failure to zero -- writing 0 for an
+///   unparseable inventory quantity would look like real data, not an error.
 pub fn collect_stock(csv: &ParsedCsv, sku_to_id: &HashMap<String, u64>) -> (Vec<StockItem>, Vec<String>) {
     let mut rows = Vec::new();
     let mut warnings = Vec::new();

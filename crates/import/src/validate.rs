@@ -14,8 +14,7 @@ pub fn parse_decimal_value(s: &str) -> Result<f64, String> {
 
 /// Parses an EAV `datetime`-backend attribute value, accepting either a full
 /// `YYYY-MM-DD HH:MM:SS` timestamp or a bare `YYYY-MM-DD` date (midnight
-/// implied) -- the two formats GoGento's benchmark CSVs and Magento exports
-/// commonly use.
+/// implied) -- the two formats Magento exports commonly use.
 pub fn parse_datetime_value(s: &str) -> Result<NaiveDateTime, String> {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
         .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap()))

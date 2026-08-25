@@ -1,5 +1,5 @@
-//! Realtime HMAC-gated price/inventory API -- mirrors GoGento's
-//! `api/realtime` package. Phase D (stretch) per the project plan.
+//! Realtime HMAC-gated price/inventory API, for latency-sensitive callers
+//! that don't want a full GraphQL round trip.
 
 pub mod hmac_auth;
 pub mod price;

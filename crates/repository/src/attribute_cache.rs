@@ -1,10 +1,8 @@
 use entity::EavAttribute;
 use std::collections::HashMap;
 
-/// Maps `attribute_id -> attribute_code`, same role as Go's process-global
-/// `attributeCodeMap` (`model/repository/product/product_repository.go`).
-/// Unlike the Go version this isn't a lazily-initialized global — callers
-/// build one from a fetched `Vec<EavAttribute>` and hold onto it.
+/// Maps `attribute_id -> attribute_code`. Not a lazily-initialized global --
+/// callers build one from a fetched `Vec<EavAttribute>` and hold onto it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AttributeCodeMap {
     by_id: HashMap<u16, String>,

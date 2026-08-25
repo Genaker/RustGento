@@ -1,7 +1,6 @@
-//! Standalone product-import benchmark CLI -- the Rust counterpart to
-//! GoGento's `go run . products:import` (`cmd/product_import.go`). Reads a
-//! CSV file and reports the same shape of timing/count summary so results
-//! are directly diffable against the Go benchmark output.
+//! Standalone product-import benchmark CLI. Reads a CSV file and reports a
+//! timing/count summary comparable against an equivalent Go implementation's
+//! benchmark output.
 
 use clap::Parser;
 use config::DbConfig;

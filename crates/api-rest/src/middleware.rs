@@ -8,7 +8,7 @@ use std::time::Instant;
 
 /// Adds Go's exact timing headers (`X-Page-Generation-Time-ms`,
 /// `X-Page-Generation-Time-μs`, `X-Page-Generation-Time`, `Server-Timing`)
-/// to every response, matching `magento.go`'s response-writer wrapper.
+/// to every response.
 pub async fn timing_headers(req: Request, next: Next) -> Response {
     let start = Instant::now();
     let mut response = next.run(req).await;
@@ -36,11 +36,9 @@ pub async fn timing_headers(req: Request, next: Next) -> Response {
     response
 }
 
-/// Paths exempt from `/api` auth -- matches GoGento's `config/api.go` exactly,
-/// including the fact that `/api/products/flat` etc. are NOT in this list
-/// (so they DO require auth by default). Replicated verbatim: see the
-/// project plan on why this is treated as observable API-parity behavior,
-/// not an internal bug to "fix".
+/// Paths exempt from `/api` auth. Deliberately narrow: `/api/products/flat`
+/// etc. are NOT in this list, so they require auth by default even though
+/// the base `/api/products` listing doesn't.
 pub const AUTH_SKIP_PATHS: [&str; 4] = ["/health", "/api/products", "/api/products/{id}", "/graphql"];
 
 fn is_skipped(req: &Request) -> bool {
@@ -104,7 +102,7 @@ pub async fn key_auth(axum::extract::State(cfg): axum::extract::State<KeyAuthCon
     Ok(next.run(req).await)
 }
 
-/// A no-op passthrough used when `AUTH_TYPE` is anything else Go's `core/auth`
+/// A no-op passthrough used when `AUTH_TYPE` is anything else this project
 /// doesn't specifically special-case, or as the base layer wired before
 /// selecting basic/key at startup.
 pub async fn no_auth(req: Request<Body>, next: Next) -> Response {

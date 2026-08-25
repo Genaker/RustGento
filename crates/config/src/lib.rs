@@ -1,13 +1,12 @@
-//! Config layer — mirrors GoGento's `config/` package: env-var driven settings,
-//! `.env` file support (ignored if missing, matching `godotenv.Load()`), and
-//! MySQL pool construction matching GORM's connection-pool settings.
+//! Config layer — env-var driven settings, `.env` file support (ignored if
+//! missing), and MySQL pool construction.
 
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use sqlx::MySqlPool;
 use std::time::Duration;
 
-/// Load a `.env` file if present. Mirrors Go's `godotenv.Load()`, which silently
-/// no-ops when the file is missing rather than erroring.
+/// Load a `.env` file if present. Silently no-ops when the file is missing
+/// rather than erroring.
 pub fn load_dotenv() {
     let _ = dotenvy::dotenv();
 }
@@ -27,7 +26,7 @@ pub struct DbConfig {
 
 impl DbConfig {
     /// Reads MYSQL_HOST/PORT/USER/PASS/DB from the environment, with the same
-    /// defaults GoGento's `.env.example` documents.
+    /// defaults `.env.example` documents.
     pub fn from_env() -> Self {
         DbConfig {
             host: env_or("MYSQL_HOST", "localhost"),
@@ -47,8 +46,8 @@ impl DbConfig {
             .database(&self.database)
     }
 
-    /// Builds a connection pool matching GORM's settings in GoGento's `config/db.go`:
-    /// 25 max open, 25 max idle, 5 min max lifetime, 2 min max idle time.
+    /// Builds a connection pool: 25 max open, 25 max idle, 5 min max
+    /// lifetime, 2 min max idle time.
     pub async fn build_pool(&self) -> Result<MySqlPool, sqlx::Error> {
         MySqlPoolOptions::new()
             .max_connections(25)
@@ -74,7 +73,7 @@ pub enum AuthType {
 }
 
 impl AuthType {
-    /// Reads `AUTH_TYPE`, defaulting to Basic — matches Go's `core/auth`.
+    /// Reads `AUTH_TYPE`, defaulting to Basic.
     pub fn from_env() -> Self {
         match env_or("AUTH_TYPE", "basic").as_str() {
             "key" => AuthType::Key,
@@ -83,10 +82,6 @@ impl AuthType {
         }
     }
 }
-
-/// Paths exempt from `/api` auth, matching GoGento's `config/api.go` exactly
-/// (including the fact that `/api/products/flat` etc. are NOT in this list).
-pub const AUTH_SKIP_PATHS: [&str; 4] = ["/health", "/api/products", "/api/products/:id", "/graphql"];
 
 pub fn app_port() -> u16 {
     env_or("PORT", "8080").parse().unwrap_or(8080)
@@ -163,14 +158,6 @@ mod tests {
         std::env::set_var("AUTH_TYPE", "garbage");
         assert_eq!(AuthType::from_env(), AuthType::Basic);
         std::env::remove_var("AUTH_TYPE");
-    }
-
-    #[test]
-    fn auth_skip_paths_match_go_exactly() {
-        assert_eq!(
-            AUTH_SKIP_PATHS,
-            ["/health", "/api/products", "/api/products/:id", "/graphql"]
-        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ pub struct StockInfo {
 /// `cataloginventory_stock_item` -- this port's realtime inventory lookup
 /// uses the single-source stock table rather than Magento's MSI
 /// `inventory_source_item`, since MSI isn't part of the simplified schema
-/// this project seeds (see the project plan's non-goals). The observable
+/// this project seeds (see the top-level README's known limitations). The observable
 /// contract (qty + in-stock boolean by SKU) is preserved either way.
 pub async fn stock_by_sku(pool: &MySqlPool, sku: &str) -> Result<Option<StockInfo>, sqlx::Error> {
     sqlx::query_as(

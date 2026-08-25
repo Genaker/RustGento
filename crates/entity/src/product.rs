@@ -2,19 +2,17 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-/// Mirrors Go's `model/entity/product.Product` (table `catalog_product_entity`).
-/// CE schema only -- no `row_id` (Enterprise Edition) column, by design (see
-/// plan non-goals: EE support is out of scope for this port).
+/// Maps to the `catalog_product_entity` table.
+/// CE schema only -- no `row_id` (Enterprise Edition) column; EE support is
+/// out of scope for this project (see the top-level README).
 ///
 /// Field types below match the ACTUAL live schema (`DESCRIBE
-/// catalog_product_entity`), not just GORM's Go struct tags -- GORM maps
-/// Go's `int`/`uint` to `bigint`/`bigint unsigned` by default, so several
-/// columns are wider than their Go field names suggest (e.g. `entity_id` is
-/// `bigint unsigned`, and `has_options` is a signed `smallint` despite the Go
-/// field being `uint16`, because its GORM tag says `type:smallint` with no
-/// `unsigned`). Getting this wrong doesn't surface until you actually decode
-/// a row with `sqlx::query_as` -- binding into an INSERT tolerates width
-/// mismatches, but strict decode does not.
+/// catalog_product_entity`), which can be wider or differently-signed than
+/// a quick read of a typical ORM's model definitions would suggest (e.g.
+/// `entity_id` is `bigint unsigned`, and `has_options` is a signed
+/// `smallint` rather than unsigned). Getting this wrong doesn't surface
+/// until you actually decode a row with `sqlx::query_as` -- binding into an
+/// INSERT tolerates width mismatches, but strict decode does not.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Product {
     pub entity_id: u64,
@@ -46,7 +44,7 @@ eav_value_table!(ProductDecimal, f64);
 eav_value_table!(ProductText, String);
 eav_value_table!(ProductDatetime, NaiveDateTime);
 
-/// Mirrors Go's `StockItem` (table `cataloginventory_stock_item`). Only the
+/// Maps to the `cataloginventory_stock_item` table. Only the
 /// subset of columns this port actually reads/writes is modeled; sqlx's
 /// derived `FromRow` looks up fields by name and ignores columns not
 /// declared here, so `SELECT *` against the wider real table is fine.
@@ -66,7 +64,7 @@ pub struct StockItem {
     pub website_id: u16,
 }
 
-/// Mirrors Go's `ProductIndexPrice` (table `catalog_product_index_price`).
+/// Maps to the `catalog_product_index_price` table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct ProductIndexPrice {
     pub entity_id: u64,
@@ -84,7 +82,7 @@ pub struct ProductIndexPrice {
 pub const GUEST_CUSTOMER_GROUP_ID: u64 = 0;
 
 /// Fixed `stock_id` used by single-source (non-MSI) stock rows, matching the
-/// Go import service's hardcoded value.
+/// import pipeline's hardcoded value.
 pub const DEFAULT_STOCK_ID: u16 = 1;
 
 #[cfg(test)]

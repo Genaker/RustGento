@@ -56,7 +56,7 @@ mod tests {
     async fn looks_up_existing_skus_against_live_db() {
         let Some(pool) = crate::test_support::test_pool().await else { return };
 
-        // The seed data (~/GoGento/cmd/seed) always creates SAMPLE-SKU-0000.
+        // The seed data always creates SAMPLE-SKU-0000.
         let skus = vec!["SAMPLE-SKU-0000".to_string(), "DEFINITELY-NOT-A-REAL-SKU".to_string()];
         let found = lookup_existing_skus(&pool, &skus, 500).await.unwrap();
 

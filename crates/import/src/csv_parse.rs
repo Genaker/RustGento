@@ -4,8 +4,6 @@ use std::io::Read;
 
 /// A parsed product-import CSV: header names, the resolved index of the
 /// required `sku` column, and every data row as raw trimmed-on-access strings.
-/// Mirrors Go's `ImportProducts` header/`colIndex` parsing in
-/// `service/product/import_service.go`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedCsv {
     pub headers: Vec<String>,
@@ -15,8 +13,8 @@ pub struct ParsedCsv {
 
 /// Parses CSV data. The first row must be a header row containing a `sku`
 /// column (any other column not otherwise recognized later in the pipeline
-/// is simply ignored, matching Go's `knownColumns` warning-only behavior --
-/// this function itself only validates structure, not column names).
+/// is simply ignored with a warning -- this function itself only validates
+/// structure, not column names).
 pub fn parse_csv<R: Read>(reader: R) -> Result<ParsedCsv, ImportError> {
     let mut rdr = ReaderBuilder::new()
         .has_headers(true)

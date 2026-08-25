@@ -1,5 +1,5 @@
-//! GraphQL layer -- mirrors GoGento's `graphql/` package: schema, resolvers,
-//! and the axum wiring for `/graphql` + `/playground`.
+//! GraphQL layer -- schema, resolvers, and the axum wiring for `/graphql`
+//! + `/playground`.
 
 pub mod context;
 pub mod models;

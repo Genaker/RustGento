@@ -1,6 +1,5 @@
-//! REST/GraphQL server binary -- mirrors GoGento's `magento.go` entrypoint:
-//! connect to MySQL, build the router (REST under `/api`, GraphQL at
-//! `/graphql`, both timing-instrumented), and serve.
+//! REST/GraphQL server binary: connect to MySQL, build the router (REST
+//! under `/api`, GraphQL at `/graphql`, both timing-instrumented), and serve.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,20 +24,19 @@ async fn main() -> anyhow::Result<()> {
         product_flat_cache_enabled: rest_state.product_flat_cache_enabled,
     };
 
-    // Realtime endpoints (Phase D, stretch): mounted at /api/realtime but,
-    // as a deliberate simplification, outside the standard basic/key `/api`
-    // auth layer -- wiring one shared auth middleware across independent
-    // crates with different `State` types isn't worth it for a stretch
-    // goal whose actual distinguishing feature is its own HMAC gate
-    // (skipped entirely when MAGENTO_CRYPT_KEY is unset, matching Go).
+    // Realtime endpoints: mounted at /api/realtime but, as a deliberate
+    // simplification, outside the standard basic/key `/api` auth layer --
+    // wiring one shared auth middleware across independent crates with
+    // different `State` types isn't worth it here, since the endpoints'
+    // actual distinguishing feature is their own HMAC gate (skipped
+    // entirely when MAGENTO_CRYPT_KEY is unset).
     let realtime_state = api_realtime::RealtimeState { pool: rest_state.pool.clone(), crypt_key: std::env::var("MAGENTO_CRYPT_KEY").unwrap_or_default() };
     let realtime_router = axum::Router::new().nest("/api/realtime", api_realtime::router(realtime_state));
 
-    // GraphQL is mounted unauthenticated at the root, matching Go's
-    // `graphqlApi.RegisterGraphQLRoutes(e, db)` sitting outside the `/api`
-    // auth group. All these routers are already fully-stated (`Router<()>`),
-    // so they merge cleanly despite coming from independent crates with
-    // their own state types.
+    // GraphQL is mounted unauthenticated at the root, sitting outside the
+    // `/api` auth group. All these routers are already fully-stated
+    // (`Router<()>`), so they merge cleanly despite coming from independent
+    // crates with their own state types.
     let app = api_rest::build_router(rest_state).merge(api_graphql::router(graphql_context)).merge(realtime_router);
 
     let port = config::app_port();

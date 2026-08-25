@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 pub const PRICE_COLUMNS: [&str; 5] = ["price_index", "final_price", "min_price", "max_price", "tier_price"];
 
-/// Fixed `website_id` GoGento's simplified price-index writer uses -- this
+/// Fixed `website_id` this simplified price-index writer uses -- this
 /// bypasses Magento's real price indexer entirely and is only a single
-/// group/website index write, matching Go's `import_price.go`.
+/// group/website index write.
 pub const PRICE_WEBSITE_ID: u16 = 1;
 
 fn default_index_price(entity_id: u64) -> ProductIndexPrice {
@@ -24,24 +24,21 @@ fn default_index_price(entity_id: u64) -> ProductIndexPrice {
     }
 }
 
-/// Collects price-index upsert rows from CSV, matching Go's `collectPrice`
-/// (`service/product/import_price.go`): a simplified, single-group/website
-/// price index written directly from CSV columns, not Magento's real indexer.
+/// Collects price-index upsert rows from CSV: a simplified, single-group/
+/// website price index written directly from CSV columns, not a real
+/// Magento price indexer run.
 ///
 /// - A no-op if the header contains none of [`PRICE_COLUMNS`].
 /// - `price_index`, if valid and non-empty, seeds `price`/`final_price`/
 ///   `min_price`/`max_price` all at once; `final_price` then overrides just
 ///   the final price. Either column alone is enough to emit a row;
-///   `min_price`/`max_price`/`tier_price` alone are not (matches Go's gate).
+///   `min_price`/`max_price`/`tier_price` alone are not.
 /// - An invalid `price_index` value is a warning that abandons the rest of
-///   the row (matches Go, which `continue`s the row on this specific
-///   failure). An invalid `final_price`/`min_price`/`max_price`/`tier_price`
-///   is a warning that leaves that field at its default -- **unlike** Go,
-///   which silently coerces a `final_price` parse failure to zero while
-///   still marking the row "populated" (`fv, _ := strconv.ParseFloat(...)`).
-///   Silently writing a zero price on invalid input looks like an oversight,
-///   not intended behavior, so this port warns and does not treat an invalid
-///   `final_price` as sufficient to emit a row.
+///   the row. An invalid `final_price`/`min_price`/`max_price`/`tier_price`
+///   is a warning that leaves that field at its default rather than
+///   silently coercing the parse failure to zero -- a zero price on invalid
+///   input would look like real data, not an error, so an invalid
+///   `final_price` alone is not treated as sufficient to emit a row either.
 pub fn collect_price(csv: &ParsedCsv, sku_to_id: &HashMap<String, u64>) -> (Vec<ProductIndexPrice>, Vec<String>) {
     let mut rows = Vec::new();
     let mut warnings = Vec::new();

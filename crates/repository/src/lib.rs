@@ -1,9 +1,9 @@
-//! Repository layer — mirrors GoGento's `model/repository`: flattening EAV
-//! rows into `attribute_code -> value` maps, plus the in-process flat cache.
+//! Repository layer — flattening EAV rows into `attribute_code -> value`
+//! maps, plus the in-process flat cache.
 //!
 //! DB-touching fetch functions (querying `gogento-mysql`) are intentionally
 //! thin and live alongside the pure logic below; they're exercised by
-//! integration testing against a live database (Phase B), not unit tests,
+//! integration testing against a live database, not unit tests,
 //! since mocking sqlx's wire protocol wouldn't meaningfully test anything
 //! beyond what the pure flatten/cache/batching logic already covers.
 

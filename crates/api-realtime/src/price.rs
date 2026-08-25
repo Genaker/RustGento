@@ -36,8 +36,8 @@ mod tests {
     #[tokio::test]
     async fn returns_the_lower_of_price_and_special_price() {
         let Some(pool) = crate::test_support::test_pool().await else { return };
-        // SAMPLE-SKU-0001 is seeded with a "price" decimal attribute by
-        // ~/GoGento/cmd/seed; whatever its value, this must be <= it.
+        // SAMPLE-SKU-0001 is seeded with a "price" decimal attribute;
+        // whatever its value, this must be <= it.
         let Some(price) = sqlx::query_scalar::<_, f64>(
             "SELECT d.value FROM catalog_product_entity_decimal d \
              JOIN eav_attribute a ON a.attribute_id = d.attribute_id \

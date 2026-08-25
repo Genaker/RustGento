@@ -2,11 +2,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-/// Mirrors Go's `model/entity/category.Category` (table `catalog_category_entity`).
+/// Maps to the `catalog_category_entity` table.
 /// See `product.rs`'s doc comment for why field widths/nullability here
-/// follow the live `DESCRIBE` output rather than Go's field names: GORM maps
-/// Go's `int` to `bigint` by default, so `position`/`level`/`children_count`
-/// are 64-bit despite reading like small numbers.
+/// follow the live `DESCRIBE` output rather than a naive reading of a typical
+/// ORM's model definitions: `position`/`level`/`children_count` are 64-bit
+/// despite reading like small numbers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Category {
     pub entity_id: u64,
@@ -37,7 +37,7 @@ category_value_table!(CategoryInt, i64);
 category_value_table!(CategoryVarchar, String);
 category_value_table!(CategoryText, String);
 
-/// Mirrors Go's `CategoryProduct` (join table `catalog_category_product`).
+/// Maps to the `catalog_category_product` join table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct CategoryProduct {
     pub entity_id: u64,

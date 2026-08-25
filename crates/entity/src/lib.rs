@@ -1,6 +1,6 @@
-//! Entity layer — plain data structs mirroring GoGento's `model/entity` package.
-//! CE (`entity_id`) schema only; see the project plan for why EE (`row_id`) support
-//! is an explicit non-goal.
+//! Entity layer — plain data structs over the Magento EAV schema.
+//! CE (`entity_id`) schema only; EE (`row_id`) support is an explicit
+//! non-goal (see the top-level README).
 
 pub mod backend_type;
 pub mod category;

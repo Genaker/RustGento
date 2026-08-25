@@ -264,9 +264,9 @@ pub struct MagentoProduct {
     pub url_key: Option<String>,
 }
 
-/// Default currency used for the Venia-shaped price types -- GoGento
-/// doesn't expose a real multi-currency store config in this simplified
-/// port, so this is a fixed placeholder rather than left ambiguous.
+/// Default currency used for the Venia-shaped price types -- there's no
+/// real multi-currency store config here, so this is a fixed placeholder
+/// rather than left ambiguous.
 pub const DEFAULT_CURRENCY: &str = "USD";
 
 impl MagentoProduct {

@@ -1,8 +1,7 @@
-//! Import service -- mirrors GoGento's `service/product/import_*.go`: parse
-//! a product CSV, resolve/insert entities, bucket attribute/stock/price
-//! values by target table, and flush everything concurrently. This is the
-//! primary benchmarked path for the Go-vs-Rust comparison (see the project
-//! plan's "benchmark methodology" section).
+//! Import service -- parse a product CSV, resolve/insert entities, bucket
+//! attribute/stock/price values by target table, and flush everything
+//! concurrently. This is the primary benchmarked path (see the top-level
+//! README's benchmark section).
 
 mod attributes;
 mod csv_parse;

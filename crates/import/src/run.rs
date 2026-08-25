@@ -50,9 +50,8 @@ impl ImportResult {
 
 /// Runs a full product import: parse CSV -> resolve/insert `catalog_product_entity`
 /// rows -> bucket attribute/stock/price values -> flush all seven target
-/// tables concurrently. Mirrors Go's `ImportProducts`
-/// (`service/product/import_service.go`), raw-SQL mode (sqlx *is* the raw-SQL
-/// path here -- there's no separate ORM mode to toggle, see the project plan).
+/// tables concurrently (sqlx's parameterized queries are the raw-SQL path
+/// here -- there's no separate ORM layer to toggle).
 pub async fn import_products<R: Read>(
     pool: &MySqlPool,
     reader: R,

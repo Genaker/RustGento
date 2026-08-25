@@ -1,32 +1,53 @@
 # gogento-rust
 
-A Rust reimplementation of [GoGento](https://github.com/Genaker/GoGento) (a Go/Echo/GORM
-Magento REST+GraphQL API layer), built to compare Go and Rust head-to-head on the same
-operations against the same MySQL data. Independent project/repo — not a fork or a
-modification of GoGento.
+A Rust-native Magento catalog API: a REST + GraphQL server backed by a
+flattened EAV (entity-attribute-value) read model, a high-throughput bulk
+CSV product importer, and an HMAC-gated realtime price/inventory API. Built
+on `axum`, `sqlx`, and `async-graphql` against a MySQL-backed Magento schema.
 
-See the implementation plan for full scope, architecture, and phasing.
+## Why this exists
 
-## Status: Phases A–D complete
+Magento's catalog is modeled as EAV: a product's attributes (name, price,
+description, ...) live as rows in per-type value tables
+(`catalog_product_entity_{varchar,int,decimal,text,datetime}`), keyed by
+`(entity_id, attribute_id, store_id)`, rather than as columns on one row.
+Reading a product means joining across five tables plus stock and category
+links; writing a CSV of products means resolving SKUs to entity IDs and
+fanning attribute values out across those same five tables in bulk. This
+project implements that whole read/write path natively in Rust: a typed
+entity layer over the real schema, an attribute-flattening layer that turns
+those joins into one JSON map per product, a concurrent batched-upsert import
+pipeline, and REST/GraphQL/realtime APIs on top.
 
-- `entity` — EAV data model (CE schema only; see non-goals)
-- `config` — env-driven config, MySQL pool construction
-- `repository` — EAV flattening logic, batched DB fetch/CRUD, in-process flat cache, category tree
-- `import` — CSV → EAV bulk import pipeline (the benchmarked path)
-- `api-rest` — REST API: products/categories/stock endpoints, basic/key auth with
-  Go's exact skip-list, timing headers, gzip
-- `api-graphql` — GraphQL: full schema (products, categories, category tree,
-  Magento/Venia-compatible `magentoProducts`/`magentoCategories`, store-ID
-  resolution from header/variable/query-param), `search`/`_extension` stubbed
-- `api-realtime` — HMAC-gated realtime price/stock API (Phase D, stretch)
-- `bin/import_cli.rs` (`gogento-import`) — standalone benchmark CLI
-- `src/main.rs` (`gogento-server`) — the actual HTTP server, all three API
-  layers merged into one `axum::Router` and served together
+## What's here
+
+- **`entity`** — typed structs over the live MySQL schema (CE/`entity_id`
+  schema; see [Known limitations](#known-limitations))
+- **`config`** — env-driven configuration, MySQL pool construction
+- **`repository`** — EAV attribute flattening, batched DB fetch/CRUD, an
+  in-process flat-result cache, category tree construction
+- **`import`** — CSV → EAV bulk import pipeline: SKU resolution, new-entity
+  insertion, per-backend-type value bucketing with validation, concurrent
+  batched upserts across all five value tables plus stock and price-index
+- **`api-rest`** — REST endpoints for products/categories/stock, HTTP Basic
+  or API-key auth, per-request timing headers, gzip
+- **`api-graphql`** — a full GraphQL schema: paginated product/category
+  search, category tree, Venia-storefront-compatible queries
+  (`magentoProducts`/`magentoCategories` with base64 entity UIDs),
+  multi-source store-ID resolution (header, GraphQL variable, or query
+  param)
+- **`api-realtime`** — a small HMAC-signed API for price/inventory lookups
+  meant for latency-sensitive callers (checkout, cart) that don't want the
+  overhead of a full GraphQL round trip
+- **`bin/import_cli.rs`** (`gogento-import`) — standalone CLI for
+  benchmarking/running the bulk importer outside the server process
+- **`src/main.rs`** (`gogento-server`) — the HTTP server: all three API
+  layers merged into one `axum::Router`
 
 Verified end-to-end against a live MySQL instance: full REST CRUD lifecycle,
-every GraphQL query in the schema, and the HMAC-gated realtime endpoint
-(cross-verified with an independent Python HMAC implementation, not just
-self-consistently).
+every query in the GraphQL schema, and the HMAC-gated realtime endpoint
+(signature cross-checked against an independent Python HMAC implementation,
+not just self-consistently).
 
 ## Running the server
 
@@ -34,12 +55,49 @@ self-consistently).
 cp .env.example .env   # point MYSQL_HOST/PORT at your MySQL instance
 cargo build --release --bin gogento-server
 ./target/release/gogento-server
-# REST:      curl -u admin:secret http://localhost:8080/api/products/flat?limit=5
-# GraphQL:   curl -X POST -H 'Content-Type: application/json' \
-#              -d '{"query":"query { products(pageSize:5){ items { sku name } } }"}' \
-#              http://localhost:8080/graphql
-# Realtime:  curl http://localhost:8080/api/realtime/stock?sku=<sku>
+
+# REST
+curl -u admin:secret 'http://localhost:8080/api/products/flat?limit=5'
+
+# GraphQL
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"query":"query { products(pageSize:5){ items { sku name } } }"}' \
+  http://localhost:8080/graphql
+
+# Realtime
+curl 'http://localhost:8080/api/realtime/stock?sku=<sku>'
 ```
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASS` / `MYSQL_DB` | `localhost` / `3306` / `magento` / `magento` / `magento` | MySQL connection |
+| `PORT` | `8080` | HTTP listen port |
+| `AUTH_TYPE` | `basic` | `basic` (uses `API_USER`/`API_PASS`) or `key` (uses `API_KEY`, checked via `X-API-Key` or `Authorization: Bearer`) |
+| `PRODUCT_FLAT_CACHE` | `on` | Set to `off` to bypass the in-process flattened-product cache entirely (useful for benchmarking cold-path latency) |
+| `MAGENTO_CRYPT_KEY` | unset | HMAC key for the realtime API's signed endpoint; when unset, that endpoint's signature check is skipped entirely |
+| `RUST_LOG` | unset | Standard `tracing`/`env_logger`-style log-level filter |
+
+## API overview
+
+**REST** (under `/api`, Basic/key-authenticated except the two paths below):
+
+| Method | Path | |
+|---|---|---|
+| GET | `/health` | unauthenticated |
+| GET | `/api/products` | unauthenticated; `?limit=` |
+| GET, POST | `/api/products`, `/api/products/{id}` | list/get unauthenticated by ID only; create/update/delete require auth |
+| GET | `/api/products/flat`, `/api/products/full`, `/api/products/flat/{ids}` | flattened attribute view, auth required |
+| GET | `/api/categories`, `/api/category/{id}`, `/api/category/{ids}/flat`, `/api/category/tree` | |
+| GET | `/api/category/cache`, `/api/category/cache/{id}` | introspects the in-process category cache |
+| POST | `/api/stock/import` | bulk JSON stock upsert |
+| GET | `/api/realtime/price`, `/stock`, `/tier-prices`, `/price-inventory` | the last is HMAC-gated when `MAGENTO_CRYPT_KEY` is set |
+
+**GraphQL** (`/graphql`, unauthenticated, playground at `/playground`):
+`products`, `product`, `categories`, `category`, `categoryTree`,
+`magentoCategories`, `magentoProducts`, plus stubbed `search` and
+`_extension` fields kept for schema-shape completeness.
 
 ## Running the import benchmark
 
@@ -48,6 +106,9 @@ cargo build --release --bin gogento-import
 ./target/release/gogento-import --file path/to/products.csv --batch-size 500
 ```
 
+Reports rows processed, EAV/stock/price row counts, and a
+processing-time/DB-time/total-time breakdown.
+
 ## Testing
 
 ```bash
@@ -55,48 +116,36 @@ cargo test --workspace
 ```
 
 Unit tests cover all pure logic (CSV parsing, EAV flattening, stock/price
-bucketing, validation, HMAC-adjacent config). DB-touching integration tests
-(`sku_lookup`, `entities`, `flush`, `run`) connect to a live MySQL instance —
-default `mysql://magento:magento@127.0.0.1:3309/magento` (this project's dev
-`gogento-mysql` Docker container), overridable via `GOGENTO_TEST_DATABASE_URL`.
-They skip gracefully (not fail) if that database isn't reachable, mirroring
-GoGento's own `t.Skip`-on-no-DB test pattern.
+value bucketing and validation, pagination math, HMAC signing). DB-touching
+integration tests connect to a live MySQL instance — default
+`mysql://magento:magento@127.0.0.1:3309/magento`, overridable via
+`GOGENTO_TEST_DATABASE_URL` — and skip gracefully (not fail) if that database
+isn't reachable, so `cargo test` still passes in an environment with no
+MySQL available.
 
-REST/GraphQL/realtime handlers are tested the same way, but through their
-actual axum routers via `tower::ServiceExt::oneshot` (REST/realtime) or
-`Schema::execute` (GraphQL) — full HTTP-level request/response round trips
-against the live DB, not mocks: CRUD lifecycles, auth skip-list behavior
-(including once nested under the full app), cache warm/cold paths, pagination
-edge cases, and the HMAC gate's accept/reject paths.
+REST/GraphQL/realtime handlers are tested the same way but through their
+actual routers: `tower::ServiceExt::oneshot` for REST/realtime, `Schema::execute`
+for GraphQL — full request/response round trips against the live DB, not
+mocks. Coverage includes CRUD lifecycles, auth skip-list behavior (including
+once nested under the full app), cache warm/cold paths, pagination edge
+cases, and the HMAC gate's accept/reject paths.
 
 Coverage (`cargo llvm-cov --workspace`, with the dev database up): **96.0%
-regions, 96.9% functions, 97.9% lines** across 238 tests. The remaining ~2-4%
-is almost entirely `?`-propagated `sqlx::Error` branches inside DB calls that
+regions, 96.9% functions, 97.9% lines** across 238 tests. The remainder is
+almost entirely `?`-propagated `sqlx::Error` branches inside DB calls that
 only trigger on an actual connection/query failure mid-operation — not
-reachable without deliberately breaking the database, and not mocked here
-since mocking sqlx's wire protocol wouldn't meaningfully test anything beyond
-what the pure logic tests already cover.
+reachable without deliberately breaking the database mid-test, and not
+mocked here since mocking sqlx's wire protocol wouldn't meaningfully test
+anything beyond what the pure-logic tests already cover.
 
-## Go vs Rust benchmark: product import
+## Benchmark: bulk product import, Rust vs. an equivalent Go/Echo/GORM service
 
-Same operation, same MySQL container (`gogento-mysql`, un-networked from any
-other project), same 1000-row/13-attribute-column CSV
+Same MySQL instance, same 1000-row/13-attribute-column CSV
 (`sku,name,meta_title,url_key,description,short_description,color,size,status,price,weight,special_price,special_from_date,special_to_date`),
 `--batch-size 500`, 3 runs each with the target rows deleted between runs so
-every run is a fresh insert (not an update):
+every run is a fresh insert rather than an update.
 
-```
-# Go (GORM_LOG=off for a fair comparison -- Rust has no equivalent verbose
-# per-query logging enabled by default, so Go's must be disabled too):
-cd ~/GoGento
-GORM_LOG=off go run -tags cli . products:import -f bench-1000.csv --batch-size 500 --raw-sql
-
-# Rust:
-cd ~/gogento-rust
-./target/release/gogento-import --file bench-1000.csv --batch-size 500
-```
-
-| Run | Go total time | Rust total time |
+| Run | Go service | This project |
 |---|---|---|
 | 1 | 234ms | 382ms |
 | 2 | 200ms | 386ms |
@@ -104,21 +153,31 @@ cd ~/gogento-rust
 | **Median** | **234ms** | **386ms** |
 | Rate (median) | ~4,270 products/sec | ~2,590 products/sec |
 
-**Go was faster on this specific benchmark.** Both implementations are almost
-entirely DB-round-trip-bound here (Rust's own breakdown: ~1.3ms in-memory
-processing vs ~380ms in DB calls, for 1000 products / 13,000 EAV rows across
-5 tables + attribute lookup + SKU resolution + entity insert). The most
-likely explanation is transaction scope: this Rust implementation issues each
-batched upsert as its own auto-committed statement (no explicit transaction
-wrapping the concurrent per-table flush), while GORM's `CreateInBatches` may
-be batching differently under the hood. Wrapping each flush's batches in one
-explicit transaction is a plausible next optimization, not yet done — this
-result is reported as-is rather than tuned until Rust wins, since the point
-of this project is an honest comparison, not a foregone conclusion.
+The Go service was faster on this specific benchmark. Both implementations
+are almost entirely DB-round-trip-bound here (this project's own breakdown:
+~1.3ms in-memory processing vs. ~380ms in DB calls, for 1000 products /
+13,000 EAV rows across 5 tables + attribute lookup + SKU resolution + entity
+insert). The most likely explanation is transaction scope: this
+implementation issues each batched upsert as its own auto-committed
+statement rather than wrapping a flush in one explicit transaction, while
+the Go/GORM side may batch differently under the hood. Wrapping each
+flush's batches in one transaction is a plausible next optimization, not yet
+applied — this result is reported as measured rather than tuned until it
+wins, since the point is an honest number, not a foregone conclusion.
 
-## Non-goals (this port, v1)
+## Known limitations
 
-Cron jobs, the extension/registry mechanism, RBAC/ACL enforcement, the
-Redis-backed sales-grid cache and sales module generally, gallery import,
-EE (`row_id`) schema support, Elasticsearch-backed search, static asset/template
-serving. See the implementation plan for the full reasoning.
+- **CE schema only.** Magento Enterprise's staging/versioning schema
+  (`row_id`-keyed EAV tables) isn't supported; there's no runtime
+  CE/EE detection, unlike a typical Magento-adjacent Go service.
+- **No tier pricing.** The realtime `/tier-prices` endpoint always returns
+  an empty list — there's no `catalog_product_entity_tier_price` table in
+  the schema this project targets.
+- **No full-text/Elasticsearch search.** The GraphQL `search` field is
+  present for schema-shape completeness but always returns an empty result.
+- **No cron, extension registry, or RBAC enforcement.** These exist as
+  scaffolding elsewhere but aren't part of this project's scope.
+- **No gallery import, sales module, or Redis-backed caching.** Product
+  media galleries, order management, and the Redis cache layer some
+  Magento-adjacent services use aren't implemented here — caching is a
+  simple in-process, per-store map with no TTL or eviction.

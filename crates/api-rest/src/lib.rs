@@ -1,5 +1,5 @@
-//! REST API layer -- mirrors GoGento's `api/product`, `api/category`,
-//! `api/stock` packages and the `/api` auth middleware group in `magento.go`.
+//! REST API layer -- products/categories/stock endpoints plus the `/api`
+//! auth middleware group.
 
 pub mod categories;
 pub mod middleware;
@@ -23,10 +23,9 @@ async fn health() -> StatusCode {
 }
 
 /// Builds the full application router: unauthenticated `/health` and
-/// `/api/products`/`/api/products/:id` (per the auth skip-list), the rest of
+/// `/api/products`/`/api/products/{id}` (per the auth skip-list), the rest of
 /// `/api/*` behind auth, all wrapped in the timing-header middleware and
-/// gzip compression/decompression -- matching `magento.go`'s middleware
-/// order (timing -> logging/tracing -> recover -> gzip -> decompress).
+/// gzip compression/decompression.
 pub fn build_router(state: AppState) -> Router {
     let mut api = Router::new().nest("/products", products::router()).merge(categories::router()).nest("/stock", stock::router());
 
