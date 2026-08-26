@@ -1,3 +1,5 @@
+![RustGento](RustGento.jpeg)
+
 # gogento-rust
 
 A Rust-native Magento catalog API: a REST + GraphQL server backed by a
