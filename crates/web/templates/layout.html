@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{ meta_description }}">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ meta_description }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="RustGento Store">
+    <title>{{ title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+<script>
+window.openMobileMenu = function() {
+    document.getElementById('mobileDropdownOverlay').classList.remove('hidden');
+    document.getElementById('mobileDropdown').classList.remove('hidden');
+    document.getElementById('mobileCloseBtn').classList.remove('hidden');
+};
+window.closeMobileMenu = function() {
+    document.getElementById('mobileDropdownOverlay').classList.add('hidden');
+    document.getElementById('mobileDropdown').classList.add('hidden');
+    document.getElementById('mobileCloseBtn').classList.add('hidden');
+};
+window.toggleMobileMenu = function() {
+    const el = document.getElementById('mobileDropdown');
+    if (el.classList.contains('hidden')) { openMobileMenu(); } else { closeMobileMenu(); }
+};
+</script>
+<header class="bg-blue-600 text-white p-4 mb-6 relative" style="margin-bottom: 15px;">
+    <div class="container mx-auto flex justify-between items-center">
+        <div class="flex items-center">
+            <button id="hamburgerBtn" class="flex flex-col justify-center items-center w-10 h-10 mr-2 focus:outline-none" aria-label="Toggle menu" onclick="toggleMobileMenu()">
+                <span class="block w-6 h-0.5 bg-white mb-1"></span>
+                <span class="block w-6 h-0.5 bg-white mb-1"></span>
+                <span class="block w-6 h-0.5 bg-white"></span>
+            </button>
+            <a href="/" class="text-2xl font-bold">RustGento</a>
+        </div>
+        <div class="relative inline-flex items-center gap-2">
+            <span class="inline-flex items-center opacity-75" title="Cart is not implemented in this demo storefront">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="9" cy="21" r="1"></circle>
+                    <circle cx="20" cy="21" r="1"></circle>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                </svg>
+            </span>
+        </div>
+    </div>
+    <div id="mobileDropdownOverlay" class="fixed inset-0 bg-black bg-opacity-50 hidden z-40" onclick="closeMobileMenu()"></div>
+    <button type="button" onclick="closeMobileMenu()"
+        class="fixed p-2 bg-white rounded-full shadow-lg text-gray-500 hover:text-blue-600 focus:outline-none z-[100] hidden"
+        style="right: 5px; top: 80px;" id="mobileCloseBtn" aria-label="Close menu">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+    </button>
+    <div id="mobileDropdown" class="fixed inset-0 bg-white text-blue-600 shadow-lg hidden z-50 overflow-y-auto" style="top: 75px;">
+        <div class="relative container mx-auto px-4 min-h-screen">
+            <ul class="flex flex-col">
+                {{ category_tree_html|safe }}
+            </ul>
+        </div>
+    </div>
+</header>
+<main class="container mx-auto py-6" style="padding-top: 0px;">
+{% block content %}{% endblock %}
+</main>
+<footer class="bg-gray-800 text-white p-4 mt-6 text-center">
+    &copy; 2026 RustGento &mdash; All rights reserved.
+</footer>
+</body>
+</html>

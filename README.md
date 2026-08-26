@@ -46,15 +46,24 @@ pipeline, and REST/GraphQL/realtime APIs on top.
 - **`api-realtime`** — a small HMAC-signed API for price/inventory lookups
   meant for latency-sensitive callers (checkout, cart) that don't want the
   overhead of a full GraphQL round trip
+- **`web`** — server-rendered storefront pages (category listing with
+  pagination, product detail with breadcrumbs/gallery/price-index table),
+  built on `askama` (compile-time-checked templates -- a template
+  referencing a field the page struct doesn't have fails `cargo build`,
+  not a live request) plus an `/image/webp` resize-and-reencode proxy
+  (jpeg/png/webp, letterboxed to an exact box when both dimensions are
+  given, disk-cached)
 - **`bin/import_cli.rs`** (`gogento-import`) — standalone CLI for
   benchmarking/running the bulk importer outside the server process
-- **`src/main.rs`** (`gogento-server`) — the HTTP server: all three API
-  layers merged into one `axum::Router`
+- **`src/main.rs`** (`gogento-server`) — the HTTP server: all four layers
+  (REST/GraphQL/realtime/web) merged into one `axum::Router`, plus static
+  asset serving
 
 Verified end-to-end against a live MySQL instance: full REST CRUD lifecycle,
-every query in the GraphQL schema, and the HMAC-gated realtime endpoint
+every query in the GraphQL schema, the HMAC-gated realtime endpoint
 (signature cross-checked against an independent Python HMAC implementation,
-not just self-consistently).
+not just self-consistently), and the category/product pages rendering real
+data with working pagination, breadcrumbs, and image resizing.
 
 ## Running the server
 

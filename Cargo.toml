@@ -14,6 +14,7 @@ members = [
     "crates/api-rest",
     "crates/api-graphql",
     "crates/api-realtime",
+    "crates/web",
 ]
 
 [workspace.package]
@@ -62,4 +63,6 @@ anyhow.workspace = true
 api-rest = { path = "crates/api-rest" }
 api-graphql = { path = "crates/api-graphql" }
 api-realtime = { path = "crates/api-realtime" }
+web = { path = "crates/web" }
 axum = "0.8"
+tower-http = { version = "0.6", features = ["fs"] }

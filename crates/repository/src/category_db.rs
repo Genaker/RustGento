@@ -26,6 +26,25 @@ pub async fn find_all(pool: &MySqlPool) -> Result<Vec<Category>, sqlx::Error> {
     sqlx::query_as("SELECT * FROM catalog_category_entity ORDER BY entity_id").fetch_all(pool).await
 }
 
+/// Returns the product IDs assigned to a category via
+/// `catalog_category_product`, ordered by `product_id` for a stable
+/// listing order (the import pipeline doesn't populate a meaningful
+/// `position`, so sorting by it wouldn't be any more meaningful than
+/// insertion order).
+///
+/// Decodes as `u32` (matching the live schema's `product_id int unsigned`)
+/// then widens to `u64` to match every other entity_id type in this crate
+/// -- decoding straight into `u64` would panic at the width mismatch,
+/// binding tolerates it, strict decode does not (see `product.rs`'s entity
+/// doc comment for the general rule).
+pub async fn product_ids_in_category(pool: &MySqlPool, category_id: u64) -> Result<Vec<u64>, sqlx::Error> {
+    let ids: Vec<u32> = sqlx::query_scalar("SELECT product_id FROM catalog_category_product WHERE category_id = ? ORDER BY product_id")
+        .bind(category_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(ids.into_iter().map(u64::from).collect())
+}
+
 pub async fn find_by_id(pool: &MySqlPool, id: u64) -> Result<Option<Category>, sqlx::Error> {
     sqlx::query_as("SELECT * FROM catalog_category_entity WHERE entity_id = ?").bind(id).fetch_optional(pool).await
 }

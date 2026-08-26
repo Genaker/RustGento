@@ -20,7 +20,7 @@ pub(crate) mod test_support;
 
 pub use attribute_cache::AttributeCodeMap;
 pub use batching::chunk_ids;
-pub use category_db::{build_tree, CategoryTreeNode};
+pub use category_db::{build_tree, product_ids_in_category, CategoryTreeNode};
 pub use category_repo::{flatten_category, CategoryAttributeMeta, CategoryEavRows};
 pub use flat_cache::FlatCache;
 pub use product_db::ProductInput;

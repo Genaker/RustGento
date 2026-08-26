@@ -33,11 +33,18 @@ async fn main() -> anyhow::Result<()> {
     let realtime_state = api_realtime::RealtimeState { pool: rest_state.pool.clone(), crypt_key: std::env::var("MAGENTO_CRYPT_KEY").unwrap_or_default() };
     let realtime_router = axum::Router::new().nest("/api/realtime", api_realtime::router(realtime_state));
 
+    // Server-rendered storefront pages (category/product), plus static
+    // asset serving for whatever they link to -- mounted unauthenticated
+    // at the root alongside GraphQL, same reasoning: a separate crate with
+    // its own state type, merged in as an already-stated `Router<()>`.
+    let web_state = web::WebState::new(rest_state.pool.clone()).await?;
+    let web_router = web::router(web_state).nest_service("/static", tower_http::services::ServeDir::new("assets"));
+
     // GraphQL is mounted unauthenticated at the root, sitting outside the
     // `/api` auth group. All these routers are already fully-stated
     // (`Router<()>`), so they merge cleanly despite coming from independent
     // crates with their own state types.
-    let app = api_rest::build_router(rest_state).merge(api_graphql::router(graphql_context)).merge(realtime_router);
+    let app = api_rest::build_router(rest_state).merge(api_graphql::router(graphql_context)).merge(realtime_router).merge(web_router);
 
     let port = config::app_port();
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

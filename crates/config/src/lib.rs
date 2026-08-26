@@ -87,6 +87,12 @@ pub fn app_port() -> u16 {
     env_or("PORT", "8080").parse().unwrap_or(8080)
 }
 
+/// Base URL product/gallery image paths are resolved against, matching
+/// Go's `MEDIA_URL` (default `http://localhost/media/`).
+pub fn media_url() -> String {
+    env_or("MEDIA_URL", "http://localhost/media/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +174,16 @@ mod tests {
         std::env::set_var("PORT", "9090");
         assert_eq!(app_port(), 9090);
         std::env::remove_var("PORT");
+    }
+
+    #[test]
+    fn media_url_defaults_and_reads_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("MEDIA_URL");
+        assert_eq!(media_url(), "http://localhost/media/");
+        std::env::set_var("MEDIA_URL", "https://cdn.example.com/media/");
+        assert_eq!(media_url(), "https://cdn.example.com/media/");
+        std::env::remove_var("MEDIA_URL");
     }
 
     #[test]

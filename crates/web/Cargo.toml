@@ -1,0 +1,24 @@
+[package]
+name = "web"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+entity.workspace = true
+repository.workspace = true
+config.workspace = true
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+askama = "0.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
