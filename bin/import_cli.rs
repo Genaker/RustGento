@@ -2,18 +2,58 @@
 //! timing/count summary comparable against an equivalent Go implementation's
 //! benchmark output.
 
-use clap::Parser;
-use config::DbConfig;
-use import::{import_products, ImportOptions};
+use clap::{Parser, ValueEnum};
+use config::{DbConfig, PgDbConfig};
+use import::{import_products, import_products_pg, ImportOptions, PgWriteMode};
 use std::fs::File;
 use std::process::ExitCode;
 
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum Driver {
+    Mysql,
+    Postgres,
+}
+
+/// Mirrors `import::PgWriteMode` -- a separate CLI-facing enum since
+/// `clap::ValueEnum` can't be derived on a type in another crate.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Default)]
+enum PgWriteModeArg {
+    #[default]
+    Insert,
+    Copy,
+}
+
+impl From<PgWriteModeArg> for PgWriteMode {
+    fn from(arg: PgWriteModeArg) -> Self {
+        match arg {
+            PgWriteModeArg::Insert => PgWriteMode::Insert,
+            PgWriteModeArg::Copy => PgWriteMode::Copy,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
-#[command(name = "gogento-import", about = "Benchmark: import products from CSV into a Magento-shaped MySQL schema")]
+#[command(name = "gogento-import", about = "Benchmark: import products from CSV into a Magento-shaped MySQL or Postgres schema")]
 struct Args {
     /// Path to the CSV file to import.
     #[arg(short, long)]
     file: String,
+
+    /// Target database. `postgres` writes to the scoped "core" schema in
+    /// `sql/postgres_schema.sql` (entity + EAV values + stock + price only
+    /// -- see that file's header for what's out of scope).
+    #[arg(long, value_enum, default_value_t = Driver::Mysql)]
+    driver: Driver,
+
+    /// Postgres-only: how the 5 EAV value-table flushes write their rows.
+    /// `insert` (default) is plain batched `INSERT ... ON CONFLICT`, the
+    /// same shape as the MySQL path -- simpler and the safer choice.
+    /// `copy` streams via `COPY FROM STDIN` into a staging table then does
+    /// one set-based merge -- ~30% faster on a fresh-insert workload (see
+    /// the README's Postgres performance section) but a newer, less
+    /// exercised code path. Ignored when `--driver mysql`.
+    #[arg(long, value_enum, default_value_t = PgWriteModeArg::Insert)]
+    pg_write_mode: PgWriteModeArg,
 
     /// Store ID to write EAV values under.
     #[arg(long, default_value_t = 0)]
@@ -32,14 +72,6 @@ struct Args {
 async fn main() -> ExitCode {
     let args = Args::parse();
 
-    let pool = match DbConfig::from_env().build_pool().await {
-        Ok(pool) => pool,
-        Err(e) => {
-            eprintln!("failed to connect to database: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-
     let file = match File::open(&args.file) {
         Ok(f) => f,
         Err(e) => {
@@ -50,7 +82,29 @@ async fn main() -> ExitCode {
 
     let opts = ImportOptions { store_id: args.store, batch_size: args.batch_size, attribute_set_id: args.attribute_set };
 
-    let result = match import_products(&pool, file, opts).await {
+    let result = match args.driver {
+        Driver::Mysql => {
+            let pool = match DbConfig::from_env().build_pool().await {
+                Ok(pool) => pool,
+                Err(e) => {
+                    eprintln!("failed to connect to database: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            import_products(&pool, file, opts).await
+        }
+        Driver::Postgres => {
+            let pool = match PgDbConfig::from_env().build_pool().await {
+                Ok(pool) => pool,
+                Err(e) => {
+                    eprintln!("failed to connect to database: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            import_products_pg(&pool, file, opts, args.pg_write_mode.into()).await
+        }
+    };
+    let result = match result {
         Ok(r) => r,
         Err(e) => {
             eprintln!("import failed: {e}");
@@ -64,6 +118,10 @@ async fn main() -> ExitCode {
     let eav_per_sec = total_eav as f64 / result.total_time.as_secs_f64();
 
     println!("=== Rust Import Performance ===");
+    println!("Driver:         {:?}", args.driver);
+    if args.driver == Driver::Postgres {
+        println!("PG write mode:  {:?}", args.pg_write_mode);
+    }
     println!("Rows in CSV:    {}", result.total_rows);
     println!("Products:       {} created, {} updated", result.created, result.updated);
     println!(

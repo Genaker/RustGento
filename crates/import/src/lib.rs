@@ -16,6 +16,7 @@ mod error;
 mod flush;
 mod gallery;
 mod links;
+mod pg;
 mod price_bucket;
 mod run;
 mod sku_lookup;
@@ -25,6 +26,8 @@ mod validate;
 
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod test_support_pg;
 
 pub use attributes::{AttributeMeta, AttributesByCode};
 pub use bundle::{
@@ -48,6 +51,7 @@ pub use error::ImportError;
 pub use flush::{flush_datetime, flush_decimal, flush_int, flush_price, flush_stock, flush_text, flush_varchar};
 pub use gallery::{collect_gallery, flush_gallery, GalleryRow, GALLERY_COLUMNS};
 pub use links::{collect_product_links, flush_product_links, link_sku_columns, PRODUCT_LINK_COLUMNS};
+pub use pg::{import_products_pg, PgWriteMode};
 pub use price_bucket::{collect_price, PRICE_COLUMNS, PRICE_WEBSITE_ID};
 pub use run::{import_products, ImportOptions, ImportResult};
 pub use sku_lookup::lookup_existing_skus;

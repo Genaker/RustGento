@@ -1,8 +1,9 @@
 //! Config layer — env-var driven settings, `.env` file support (ignored if
-//! missing), and MySQL pool construction.
+//! missing), and MySQL/Postgres pool construction.
 
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
-use sqlx::MySqlPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{MySqlPool, PgPool};
 use std::time::Duration;
 
 /// Load a `.env` file if present. Silently no-ops when the file is missing
@@ -50,6 +51,52 @@ impl DbConfig {
     /// lifetime, 2 min max idle time.
     pub async fn build_pool(&self) -> Result<MySqlPool, sqlx::Error> {
         MySqlPoolOptions::new()
+            .max_connections(25)
+            .min_connections(0)
+            .max_lifetime(Duration::from_secs(5 * 60))
+            .idle_timeout(Duration::from_secs(2 * 60))
+            .connect_with(self.connect_options())
+            .await
+    }
+}
+
+/// Connection settings for the Postgres synthetic-import path (see
+/// `import::import_products_pg` and `sql/postgres_schema.sql`) -- a
+/// separate, smaller config struct rather than a generic `DbConfig<Db>`
+/// since Postgres isn't a general-purpose target here, just the one
+/// synthetic-test path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PgDbConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+}
+
+impl PgDbConfig {
+    /// Reads POSTGRES_HOST/PORT/USER/PASS/DB from the environment.
+    pub fn from_env() -> Self {
+        PgDbConfig {
+            host: env_or("POSTGRES_HOST", "localhost"),
+            port: env_or("POSTGRES_PORT", "5432").parse().unwrap_or(5432),
+            user: env_or("POSTGRES_USER", "magento"),
+            password: env_or("POSTGRES_PASS", "magento"),
+            database: env_or("POSTGRES_DB", "magento"),
+        }
+    }
+
+    pub fn connect_options(&self) -> PgConnectOptions {
+        PgConnectOptions::new()
+            .host(&self.host)
+            .port(self.port)
+            .username(&self.user)
+            .password(&self.password)
+            .database(&self.database)
+    }
+
+    pub async fn build_pool(&self) -> Result<PgPool, sqlx::Error> {
+        PgPoolOptions::new()
             .max_connections(25)
             .min_connections(0)
             .max_lifetime(Duration::from_secs(5 * 60))
@@ -138,6 +185,44 @@ mod tests {
         let cfg = DbConfig::from_env();
         assert_eq!(cfg.port, 3306);
         std::env::remove_var("MYSQL_PORT");
+    }
+
+    #[test]
+    fn pg_db_config_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        for k in ["POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_USER", "POSTGRES_PASS", "POSTGRES_DB"] {
+            std::env::remove_var(k);
+        }
+        let cfg = PgDbConfig::from_env();
+        assert_eq!(cfg.host, "localhost");
+        assert_eq!(cfg.port, 5432);
+        assert_eq!(cfg.user, "magento");
+        assert_eq!(cfg.password, "magento");
+        assert_eq!(cfg.database, "magento");
+    }
+
+    #[test]
+    fn pg_db_config_reads_overrides_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("POSTGRES_HOST", "gogento-postgres");
+        std::env::set_var("POSTGRES_PORT", "5435");
+        let cfg = PgDbConfig::from_env();
+        assert_eq!(cfg.host, "gogento-postgres");
+        assert_eq!(cfg.port, 5435);
+        std::env::remove_var("POSTGRES_HOST");
+        std::env::remove_var("POSTGRES_PORT");
+    }
+
+    #[tokio::test]
+    async fn pg_build_pool_connects_to_the_gogento_postgres_dev_container() {
+        let cfg = PgDbConfig { host: "127.0.0.1".into(), port: 5435, user: "magento".into(), password: "magento".into(), database: "magento".into() };
+        match cfg.build_pool().await {
+            Ok(pool) => {
+                let one: i32 = sqlx::query_scalar("SELECT 1").fetch_one(&pool).await.unwrap();
+                assert_eq!(one, 1);
+            }
+            Err(e) => eprintln!("skipping: cannot connect to gogento-postgres: {e}"),
+        }
     }
 
     #[test]
