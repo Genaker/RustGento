@@ -48,6 +48,26 @@ pub struct IndexPriceRow {
     pub max_price: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct Slide {
+    pub eyebrow: String,
+    pub heading: String,
+    pub body: String,
+}
+
+#[derive(Template)]
+#[template(path = "home.html")]
+pub struct HomePage {
+    pub title: String,
+    pub meta_description: String,
+    pub category_tree_html: String,
+    pub slides: Vec<Slide>,
+    pub product_count: i64,
+    pub category_count: i64,
+    pub featured_category_id: Option<u64>,
+    pub tech_stack: Vec<String>,
+}
+
 #[derive(Template)]
 #[template(path = "product.html")]
 pub struct ProductPage {

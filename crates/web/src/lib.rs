@@ -4,6 +4,7 @@
 //! `cargo build` here rather than at request time).
 
 mod category;
+mod home;
 mod image;
 mod product;
 pub mod state;
@@ -16,6 +17,7 @@ use axum::Router;
 
 pub fn router(state: WebState) -> Router {
     Router::new()
+        .route("/", get(home::show))
         .route("/category/{id}", get(category::show))
         .route("/product/{id}", get(product::show))
         .route("/image/webp", get(image::show))
@@ -33,6 +35,16 @@ mod tests {
         let url = std::env::var("GOGENTO_TEST_DATABASE_URL").unwrap_or_else(|_| "mysql://magento:magento@127.0.0.1:3309/magento".to_string());
         let pool = sqlx::mysql::MySqlPoolOptions::new().acquire_timeout(std::time::Duration::from_secs(3)).connect(&url).await.ok()?;
         WebState::new(pool).await.ok()
+    }
+
+    #[tokio::test]
+    async fn home_page_renders() {
+        let Some(state) = test_state().await else { return };
+        let app = router(state);
+        let response = app.oneshot(Request::builder().uri("/").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        assert!(content_type.contains("text/html"));
     }
 
     #[tokio::test]

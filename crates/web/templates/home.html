@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="relative bg-gray-900 text-white rounded-lg overflow-hidden mb-10" style="min-height: 360px;">
+    <div class="relative" style="min-height: 360px;">
+        {% for slide in slides %}
+        <div class="slide absolute inset-0 flex items-center transition-opacity duration-700 {% if loop.first %}opacity-100{% else %}opacity-0 pointer-events-none{% endif %}" data-slide-index="{{ loop.index0 }}">
+            <div class="container mx-auto px-8 py-12 max-w-3xl">
+                <div class="uppercase tracking-widest text-orange-400 text-sm font-semibold mb-3">{{ slide.eyebrow }}</div>
+                <h1 class="text-4xl md:text-5xl font-bold mb-4 leading-tight">{{ slide.heading }}</h1>
+                <p class="text-lg text-gray-300 max-w-2xl">{{ slide.body }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="absolute bottom-6 left-0 right-0 flex justify-center gap-2" id="slide-dots">
+        {% for slide in slides %}
+        <button type="button" class="slide-dot w-2.5 h-2.5 rounded-full bg-white {% if loop.first %}opacity-100{% else %}opacity-30{% endif %}" data-goto="{{ loop.index0 }}" aria-label="Go to slide {{ loop.index }}"></button>
+        {% endfor %}
+    </div>
+    <button type="button" id="slide-prev" aria-label="Previous slide" class="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black bg-opacity-30 hover:bg-opacity-50 flex items-center justify-center">&larr;</button>
+    <button type="button" id="slide-next" aria-label="Next slide" class="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black bg-opacity-30 hover:bg-opacity-50 flex items-center justify-center">&rarr;</button>
+</section>
+
+<script>
+(function() {
+    const slides = Array.from(document.querySelectorAll('#slide-dots ~ .slide, .slide'));
+    const dots = Array.from(document.querySelectorAll('.slide-dot'));
+    let current = 0;
+    let timer;
+
+    function show(index) {
+        slides.forEach((s, i) => {
+            s.classList.toggle('opacity-100', i === index);
+            s.classList.toggle('opacity-0', i !== index);
+            s.classList.toggle('pointer-events-none', i !== index);
+        });
+        dots.forEach((d, i) => d.classList.toggle('opacity-100', i === index));
+        dots.forEach((d, i) => d.classList.toggle('opacity-30', i !== index));
+        current = index;
+    }
+
+    function next() { show((current + 1) % slides.length); }
+    function prev() { show((current - 1 + slides.length) % slides.length); }
+    function restart() { clearInterval(timer); timer = setInterval(next, 6000); }
+
+    document.getElementById('slide-next').addEventListener('click', () => { next(); restart(); });
+    document.getElementById('slide-prev').addEventListener('click', () => { prev(); restart(); });
+    dots.forEach(d => d.addEventListener('click', () => { show(parseInt(d.dataset.goto, 10)); restart(); }));
+
+    if (slides.length > 1) { restart(); }
+})();
+</script>
+
+<section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+    <div class="bg-white rounded shadow p-6 text-center">
+        <div class="text-3xl font-bold text-blue-700">{{ product_count }}</div>
+        <div class="text-gray-500 mt-1">Products in catalog</div>
+    </div>
+    <div class="bg-white rounded shadow p-6 text-center">
+        <div class="text-3xl font-bold text-blue-700">{{ category_count }}</div>
+        <div class="text-gray-500 mt-1">Categories</div>
+    </div>
+    <div class="bg-white rounded shadow p-6 text-center">
+        <div class="text-3xl font-bold text-blue-700">9</div>
+        <div class="text-gray-500 mt-1">Magento features ported</div>
+    </div>
+    <div class="bg-white rounded shadow p-6 text-center">
+        <div class="text-3xl font-bold text-blue-700">0</div>
+        <div class="text-gray-500 mt-1">Runtime GC pauses</div>
+    </div>
+</section>
+
+<section class="bg-white rounded shadow p-8 mb-10">
+    <h2 class="text-2xl font-bold mb-4">Built with</h2>
+    <div class="flex flex-wrap gap-3">
+        {% for tech in tech_stack %}
+        <span class="px-4 py-2 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">{{ tech }}</span>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="text-center mb-6">
+    {% if let Some(cat_id) = featured_category_id %}
+    <a href="/category/{{ cat_id }}" class="inline-block px-8 py-4 bg-blue-600 text-white rounded text-lg font-semibold hover:bg-blue-700">Browse the catalog</a>
+    {% endif %}
+</section>
+{% endblock %}
