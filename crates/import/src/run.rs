@@ -1,12 +1,21 @@
 use crate::attributes::AttributesByCode;
+use crate::bundle::{bundle_selection_skus, collect_bundle_options, flush_bundle_options, option_count as bundle_option_count, selection_count as bundle_selection_count};
+use crate::categories::{collect_categories, flush_categories};
+use crate::configurable::{collect_configurable, configurable_child_skus, flush_configurable};
 use crate::csv_parse::parse_csv;
+use crate::custom_options::{collect_custom_options, flush_custom_options, total_option_count as custom_option_count};
+use crate::downloadable::{collect_downloadable, flush_downloadable};
 use crate::eav_bucket::{bucket_rows, BucketedEav};
-use crate::entities::insert_new_products;
+use crate::entities::{insert_new_products, NewProduct};
 use crate::error::ImportError;
 use crate::flush::{flush_datetime, flush_decimal, flush_int, flush_price, flush_stock, flush_text, flush_varchar};
+use crate::gallery::collect_gallery;
+use crate::gallery::flush_gallery as flush_gallery_rows;
+use crate::links::{collect_product_links, flush_product_links, link_sku_columns};
 use crate::price_bucket::collect_price;
 use crate::sku_lookup::lookup_existing_skus;
 use crate::stock_bucket::collect_stock;
+use crate::tier_prices::{collect_tier_prices, flush_tier_prices};
 use entity::{EavAttribute, PRODUCT_ENTITY_TYPE_ID};
 use sqlx::MySqlPool;
 use std::collections::HashMap;
@@ -34,6 +43,16 @@ pub struct ImportResult {
     pub eav_counts: HashMap<&'static str, usize>,
     pub stock_count: usize,
     pub price_count: usize,
+    pub category_link_count: usize,
+    pub tier_price_count: usize,
+    pub product_link_count: usize,
+    pub custom_option_count: usize,
+    pub downloadable_link_count: usize,
+    pub downloadable_sample_count: usize,
+    pub bundle_option_count: usize,
+    pub bundle_selection_count: usize,
+    pub configurable_attribute_count: usize,
+    pub configurable_link_count: usize,
     pub warnings: Vec<String>,
     /// CSV parse + in-memory bucketing/validation time.
     pub process_time: Duration,
@@ -49,9 +68,10 @@ impl ImportResult {
 }
 
 /// Runs a full product import: parse CSV -> resolve/insert `catalog_product_entity`
-/// rows -> bucket attribute/stock/price values -> flush all seven target
-/// tables concurrently (sqlx's parameterized queries are the raw-SQL path
-/// here -- there's no separate ORM layer to toggle).
+/// rows -> bucket attribute/stock/price/category/tier-price/link/option/
+/// downloadable/bundle/configurable values -> flush every target table
+/// concurrently (sqlx's parameterized queries are the raw-SQL path here --
+/// there's no separate ORM layer to toggle).
 pub async fn import_products<R: Read>(
     pool: &MySqlPool,
     reader: R,
@@ -71,18 +91,49 @@ pub async fn import_products<R: Read>(
     db_time += attrs_start.elapsed();
     let attrs_by_code = AttributesByCode::build(&attrs);
 
-    let mut skus: Vec<String> = csv.rows.iter().filter_map(|row| csv.sku(row).map(str::to_string)).collect();
+    // sku -> type_id from the CSV's own "type_id" column (first occurrence
+    // wins), used only for entities this import actually creates -- a
+    // referenced-but-pre-existing SKU (link/bundle/configurable target)
+    // keeps whatever type it already has.
+    let type_col = csv.col_index("type_id");
+    let mut sku_type: HashMap<&str, &str> = HashMap::new();
+    let mut skus: Vec<String> = Vec::with_capacity(csv.rows.len());
+    for row in &csv.rows {
+        let Some(sku) = csv.sku(row) else { continue };
+        skus.push(sku.to_string());
+        let type_id = type_col.and_then(|c| csv.field(row, c)).unwrap_or("simple");
+        sku_type.entry(sku).or_insert(type_id);
+    }
     skus.sort_unstable();
     skus.dedup();
 
+    // SKUs referenced by a related/upsell/crosssell/grouped, bundle
+    // selection, or configurable variation column also need resolving,
+    // even though they won't be created if missing -- those columns may
+    // point at a product that already exists but isn't itself part of
+    // this CSV's primary "sku" column.
+    for col in link_sku_columns(&csv) {
+        skus.push(col);
+    }
+    skus.extend(bundle_selection_skus(&csv));
+    skus.extend(configurable_child_skus(&csv));
+
     let lookup_insert_start = Instant::now();
     let mut sku_to_id = lookup_existing_skus(pool, &skus, opts.batch_size).await?;
-    let updated_count = sku_to_id.len();
+    // Counted only over primary "sku" column values (sku_type's keys),
+    // not the extra link/bundle/configurable-referenced SKUs also folded
+    // into `skus` above -- those aren't part of this import's own product
+    // set and must not inflate the updated count.
+    let updated_count = sku_type.keys().filter(|sku| sku_to_id.contains_key(**sku)).count();
 
-    let new_skus: Vec<String> = skus.into_iter().filter(|s| !sku_to_id.contains_key(s)).collect();
-    let created_count = new_skus.len();
-    if !new_skus.is_empty() {
-        let inserted = insert_new_products(pool, &new_skus, "simple", opts.attribute_set_id, opts.batch_size).await?;
+    let new_entries: Vec<NewProduct> = sku_type
+        .iter()
+        .filter(|(sku, _)| !sku_to_id.contains_key(**sku))
+        .map(|(sku, type_id)| NewProduct { sku: sku.to_string(), type_id: type_id.to_string() })
+        .collect();
+    let created_count = new_entries.len();
+    if !new_entries.is_empty() {
+        let inserted = insert_new_products(pool, &new_entries, opts.attribute_set_id, opts.batch_size).await?;
         sku_to_id.extend(inserted);
     }
     db_time += lookup_insert_start.elapsed();
@@ -91,8 +142,24 @@ pub async fn import_products<R: Read>(
     let (eav, mut warnings) = bucket_rows(&csv, &sku_to_id, &attrs_by_code, opts.store_id);
     let (stock_rows, stock_warnings) = collect_stock(&csv, &sku_to_id);
     let (price_rows, price_warnings) = collect_price(&csv, &sku_to_id);
+    let (category_assignments, category_warnings) = collect_categories(&csv, &sku_to_id);
+    let (tier_price_rows, tier_price_warnings) = collect_tier_prices(&csv, &sku_to_id);
+    let (link_rows, link_warnings) = collect_product_links(&csv, &sku_to_id);
+    let (custom_option_products, custom_option_warnings) = collect_custom_options(&csv, &sku_to_id);
+    let (downloadable_links, downloadable_samples, downloadable_touched, downloadable_warnings) = collect_downloadable(&csv, &sku_to_id);
+    let (bundle_products, bundle_warnings) = collect_bundle_options(&csv, &sku_to_id);
+    let (configurable_attrs, configurable_links, configurable_warnings) = collect_configurable(&csv, &sku_to_id, &attrs_by_code);
+    let gallery_rows = collect_gallery(&csv, &sku_to_id);
+
     warnings.extend(stock_warnings);
     warnings.extend(price_warnings);
+    warnings.extend(category_warnings);
+    warnings.extend(tier_price_warnings);
+    warnings.extend(link_warnings);
+    warnings.extend(custom_option_warnings);
+    warnings.extend(downloadable_warnings);
+    warnings.extend(bundle_warnings);
+    warnings.extend(configurable_warnings);
     let process_time = process_start.elapsed();
 
     let mut eav_counts = HashMap::with_capacity(5);
@@ -103,6 +170,16 @@ pub async fn import_products<R: Read>(
     eav_counts.insert("datetime", eav.datetime.len());
     let stock_count = stock_rows.len();
     let price_count = price_rows.len();
+    let category_link_count = category_assignments.len();
+    let tier_price_count = tier_price_rows.len();
+    let product_link_count = link_rows.len();
+    let custom_opt_count = custom_option_count(&custom_option_products);
+    let downloadable_link_count = downloadable_links.len();
+    let downloadable_sample_count = downloadable_samples.len();
+    let bundle_opt_count = bundle_option_count(&bundle_products);
+    let bundle_sel_count = bundle_selection_count(&bundle_products);
+    let configurable_attribute_count = configurable_attrs.len();
+    let configurable_link_count = configurable_links.len();
 
     let flush_start = Instant::now();
     let BucketedEav { varchar, int, decimal, text, datetime } = eav;
@@ -123,6 +200,27 @@ pub async fn import_products<R: Read>(
     spawn_flush!(flush_datetime, datetime);
     spawn_flush!(flush_stock, stock_rows);
     spawn_flush!(flush_price, price_rows);
+    spawn_flush!(flush_categories, category_assignments);
+    spawn_flush!(flush_tier_prices, tier_price_rows);
+    spawn_flush!(flush_product_links, link_rows);
+    spawn_flush!(flush_gallery_rows, gallery_rows);
+
+    {
+        let pool = pool.clone();
+        tasks.spawn(async move { flush_custom_options(&pool, &custom_option_products, batch_size).await });
+    }
+    {
+        let pool = pool.clone();
+        tasks.spawn(async move { flush_downloadable(&pool, &downloadable_links, &downloadable_samples, &downloadable_touched, batch_size).await });
+    }
+    {
+        let pool = pool.clone();
+        tasks.spawn(async move { flush_bundle_options(&pool, &bundle_products, batch_size).await });
+    }
+    {
+        let pool = pool.clone();
+        tasks.spawn(async move { flush_configurable(&pool, &configurable_attrs, &configurable_links, batch_size).await });
+    }
 
     while let Some(res) = tasks.join_next().await {
         res.expect("a flush task panicked")?;
@@ -136,6 +234,16 @@ pub async fn import_products<R: Read>(
         eav_counts,
         stock_count,
         price_count,
+        category_link_count,
+        tier_price_count,
+        product_link_count,
+        custom_option_count: custom_opt_count,
+        downloadable_link_count,
+        downloadable_sample_count,
+        bundle_option_count: bundle_opt_count,
+        bundle_selection_count: bundle_sel_count,
+        configurable_attribute_count,
+        configurable_link_count,
         warnings,
         process_time,
         db_time,
@@ -201,5 +309,30 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn type_id_from_csv_is_respected_per_row() {
+        let Some(pool) = crate::test_support::test_pool().await else { return };
+
+        sqlx::query("DELETE FROM catalog_product_entity WHERE sku LIKE 'RUST-IMPORT-TYPE-TEST-%'").execute(&pool).await.unwrap();
+
+        let csv_data = "sku,type_id\nRUST-IMPORT-TYPE-TEST-1,simple\nRUST-IMPORT-TYPE-TEST-2,configurable\n";
+        import_products(&pool, Cursor::new(csv_data.as_bytes().to_vec()), ImportOptions::default()).await.unwrap();
+
+        let simple_type: String = sqlx::query_scalar("SELECT type_id FROM catalog_product_entity WHERE sku = ?")
+            .bind("RUST-IMPORT-TYPE-TEST-1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let config_type: String = sqlx::query_scalar("SELECT type_id FROM catalog_product_entity WHERE sku = ?")
+            .bind("RUST-IMPORT-TYPE-TEST-2")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(simple_type, "simple");
+        assert_eq!(config_type, "configurable");
+
+        sqlx::query("DELETE FROM catalog_product_entity WHERE sku LIKE 'RUST-IMPORT-TYPE-TEST-%'").execute(&pool).await.unwrap();
     }
 }

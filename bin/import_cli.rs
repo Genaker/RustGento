@@ -77,6 +77,33 @@ async fn main() -> ExitCode {
     );
     println!("Stock rows:     {}", result.stock_count);
     println!("Price rows:     {}", result.price_count);
+    let extended_total = result.category_link_count
+        + result.tier_price_count
+        + result.product_link_count
+        + result.custom_option_count
+        + result.downloadable_link_count
+        + result.downloadable_sample_count
+        + result.bundle_option_count
+        + result.bundle_selection_count
+        + result.configurable_attribute_count
+        + result.configurable_link_count;
+    if extended_total > 0 {
+        println!(
+            "Extended:       category_links={} tier_prices={} product_links={} custom_options={} \
+             downloadable_links={} downloadable_samples={} bundle_options={} bundle_selections={} \
+             configurable_attributes={} configurable_links={}",
+            result.category_link_count,
+            result.tier_price_count,
+            result.product_link_count,
+            result.custom_option_count,
+            result.downloadable_link_count,
+            result.downloadable_sample_count,
+            result.bundle_option_count,
+            result.bundle_selection_count,
+            result.configurable_attribute_count,
+            result.configurable_link_count,
+        );
+    }
     println!("Total time:     {:?}", result.total_time);
     println!("  - Processing: {:?}", result.process_time);
     println!("  - DB time:    {:?}", result.db_time);

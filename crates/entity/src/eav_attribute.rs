@@ -27,6 +27,12 @@ pub struct EavAttribute {
 /// Magento install (fixed by Magento's `eav_entity_type` seed data).
 pub const PRODUCT_ENTITY_TYPE_ID: u16 = 4;
 
+/// `entity_type_id` for the `catalog_category` EAV entity type. There is no
+/// `eav_entity_type` table in this project (entity types are used as bare
+/// integer constants throughout, matching `PRODUCT_ENTITY_TYPE_ID` above),
+/// so this mirrors the real Magento value.
+pub const CATEGORY_ENTITY_TYPE_ID: u16 = 3;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +70,10 @@ mod tests {
     #[test]
     fn product_entity_type_id_is_four() {
         assert_eq!(PRODUCT_ENTITY_TYPE_ID, 4);
+    }
+
+    #[test]
+    fn category_entity_type_id_is_three() {
+        assert_eq!(CATEGORY_ENTITY_TYPE_ID, 3);
     }
 }
