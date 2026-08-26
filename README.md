@@ -27,8 +27,13 @@ pipeline, and REST/GraphQL/realtime APIs on top.
 - **`repository`** — EAV attribute flattening, batched DB fetch/CRUD, an
   in-process flat-result cache, category tree construction
 - **`import`** — CSV → EAV bulk import pipeline: SKU resolution, new-entity
-  insertion, per-backend-type value bucketing with validation, concurrent
-  batched upserts across all five value tables plus stock and price-index
+  insertion (with its own `type_id` per row, so configurable/bundle/
+  downloadable products aren't silently created as "simple"), per-backend-type
+  value bucketing with validation, concurrent batched upserts across all five
+  value tables plus stock, price-index, on-the-fly categories, tier/group
+  pricing, related/up-sell/cross-sell/grouped product links, image gallery
+  (with proper entity linking), custom options, downloadable links/samples,
+  bundle options/selections, and configurable super-attributes/links
 - **`api-rest`** — REST endpoints for products/categories/stock, HTTP Basic
   or API-key auth, per-request timing headers, gzip
 - **`api-graphql`** — a full GraphQL schema: paginated product/category
@@ -179,14 +184,24 @@ algorithmic difference between the two.
 - **CE schema only.** Magento Enterprise's staging/versioning schema
   (`row_id`-keyed EAV tables) isn't supported; there's no runtime
   CE/EE detection, unlike a typical Magento-adjacent Go service.
-- **No tier pricing.** The realtime `/tier-prices` endpoint always returns
-  an empty list — there's no `catalog_product_entity_tier_price` table in
-  the schema this project targets.
+- **Tier pricing is import-only.** The bulk importer writes real tier/group
+  pricing to `catalog_product_entity_tier_price`, but the realtime
+  `/tier-prices` endpoint hasn't been wired up to read it yet and still
+  always returns an empty list.
 - **No full-text/Elasticsearch search.** The GraphQL `search` field is
   present for schema-shape completeness but always returns an empty result.
 - **No cron, extension registry, or RBAC enforcement.** These exist as
   scaffolding elsewhere but aren't part of this project's scope.
-- **No gallery import, sales module, or Redis-backed caching.** Product
-  media galleries, order management, and the Redis cache layer some
-  Magento-adjacent services use aren't implemented here — caching is a
-  simple in-process, per-store map with no TTL or eviction.
+- **No image file download.** Gallery import writes and links the DB rows
+  correctly, but doesn't fetch/store the actual image files a CSV's
+  `image`/`small_image`/`thumbnail` URLs point at.
+- **No sales module or Redis-backed caching.** Order management and the
+  Redis cache layer some Magento-adjacent services use aren't implemented
+  here — caching is a simple in-process, per-store map with no TTL or
+  eviction.
+- **Custom options, downloadable, bundle, and configurable products are
+  import-only**, same caveat as tier pricing: the CSV importer writes all
+  of them correctly, but the REST/GraphQL read APIs haven't been extended
+  to surface bundle selections, custom option choices, downloadable links,
+  or configurable variations in their responses yet -- they still return
+  the same flat product shape as a simple product.
