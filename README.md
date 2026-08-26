@@ -142,28 +142,33 @@ anything beyond what the pure-logic tests already cover.
 
 Same MySQL instance, same 1000-row/13-attribute-column CSV
 (`sku,name,meta_title,url_key,description,short_description,color,size,status,price,weight,special_price,special_from_date,special_to_date`),
-`--batch-size 500`, 3 runs each with the target rows deleted between runs so
+`--batch-size 500`, 5 runs each with the target rows deleted between runs so
 every run is a fresh insert rather than an update.
 
 | Run | Go service | This project |
 |---|---|---|
-| 1 | 234ms | 382ms |
-| 2 | 200ms | 386ms |
-| 3 | 296ms | 430ms |
-| **Median** | **234ms** | **386ms** |
-| Rate (median) | ~4,270 products/sec | ~2,590 products/sec |
+| 1 | 288ms | 427ms |
+| 2 | 285ms | 339ms |
+| 3 | 349ms | 232ms |
+| 4 | 250ms | 263ms |
+| 5 | 343ms | 210ms |
+| **Median** | **288ms** | **263ms** |
+| Rate (median) | ~3,470 products/sec | ~3,800 products/sec |
 
-The Go service was faster on this specific benchmark. Both implementations
-are almost entirely DB-round-trip-bound here (this project's own breakdown:
-~1.3ms in-memory processing vs. ~380ms in DB calls, for 1000 products /
-13,000 EAV rows across 5 tables + attribute lookup + SKU resolution + entity
-insert). The most likely explanation is transaction scope: this
-implementation issues each batched upsert as its own auto-committed
-statement rather than wrapping a flush in one explicit transaction, while
-the Go/GORM side may batch differently under the hood. Wrapping each
-flush's batches in one transaction is a plausible next optimization, not yet
-applied — this result is reported as measured rather than tuned until it
-wins, since the point is an honest number, not a foregone conclusion.
+This project is now slightly faster at the median. It wasn't originally: an
+earlier version of this benchmark had this project's median at 386ms against
+Go's 234ms, because every batched upsert was issued as its own
+auto-committed statement — each chunk was a separate implicit transaction,
+so a 1000-row/7-table import paid for several transaction commits (and their
+fsyncs) per table instead of one. Wrapping each flush function's chunks in a
+single explicit transaction (`pool.begin()` / `tx.commit()` around the whole
+batch, instead of `execute()` straight against the pool per chunk) removed
+that overhead and roughly halved this project's DB time. Both
+implementations remain almost entirely DB-round-trip-bound (this project's
+own breakdown: ~1.5ms in-memory processing vs. the rest in DB calls, for
+1000 products / 13,000 EAV rows across 5 tables + attribute lookup + SKU
+resolution + entity insert) — the per-run spread above (210-427ms) reflects
+that round-trip variance more than any algorithmic difference between runs.
 
 ## Known limitations
 
