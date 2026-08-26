@@ -14,15 +14,14 @@ pub async fn show(State(state): State<WebState>) -> Response {
         .ok()
         .flatten();
 
-    let category_tree_html = state.category_tree_html().await.unwrap_or_else(|e| {
-        tracing::warn!("category tree render failed: {e}");
-        String::new()
-    });
+    let (category_tree_html, top_nav_html) = state.nav_fragments().await;
 
     let page = HomePage {
         title: "RustGento — a Rust-native Magento catalog service".to_string(),
         meta_description: "A Rust reimplementation of a Magento-style catalog API, benchmarked feature-for-feature against an equivalent Go service.".to_string(),
         category_tree_html,
+        top_nav_html,
+        search_query: String::new(),
         slides: default_slides(),
         product_count,
         category_count,

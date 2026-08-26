@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2 class="text-3xl font-bold mb-4 mx-2">Search results for &ldquo;{{ search_query }}&rdquo;</h2>
+
+{% if products.is_empty() %}
+<div class="text-gray-500 mx-2">No products matched your search.</div>
+{% else %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    {% for p in products %}
+    <div class="bg-white rounded shadow p-4 flex flex-col items-center">
+        <a href="/product/{{ p.entity_id }}">
+            <img src="/image/webp?src={{ media_url }}{{ p.image }}&w=200&h=200&type=webp&q=90"
+                 alt="{{ p.name }}" class="w-[200px] h-[200px] object-contain mb-2 rounded mx-auto" loading="lazy">
+            <div class="text-lg font-semibold text-blue-700 hover:underline mb-1">{{ p.name }}</div>
+        </a>
+        <div class="text-gray-500">SKU: {{ p.sku }}</div>
+        <div class="text-green-600 font-bold mt-2">${{ p.price }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="flex justify-center mt-8">
+    <nav class="inline-flex rounded-md shadow-sm items-center gap-1" aria-label="Pagination">
+        {% if page > 1 %}
+        <a href="/search?q={{ search_query }}&p={{ prev_page }}&limit={{ limit }}"
+           class="px-3 py-1 border border-gray-300 bg-white text-blue-600 hover:bg-blue-50 rounded-l">Previous</a>
+        {% else %}
+        <span class="px-3 py-1 border border-gray-200 bg-gray-100 text-gray-400 rounded-l cursor-not-allowed">Previous</span>
+        {% endif %}
+
+        {% for n in page_numbers %}
+            {% if n.clone() == page %}
+            <span class="px-3 py-1 border border-gray-300 bg-blue-600 text-white">{{ n }}</span>
+            {% else %}
+            <a href="/search?q={{ search_query }}&p={{ n }}&limit={{ limit }}"
+               class="px-3 py-1 border border-gray-300 bg-white text-blue-600 hover:bg-blue-50">{{ n }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+        <a href="/search?q={{ search_query }}&p={{ next_page }}&limit={{ limit }}"
+           class="px-3 py-1 border border-gray-300 bg-white text-blue-600 hover:bg-blue-50 rounded-r">Next</a>
+        {% else %}
+        <span class="px-3 py-1 border border-gray-200 bg-gray-100 text-gray-400 rounded-r cursor-not-allowed">Next</span>
+        {% endif %}
+    </nav>
+</div>
+{% endif %}
+{% endblock %}

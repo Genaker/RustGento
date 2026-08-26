@@ -61,15 +61,14 @@ pub async fn show(State(state): State<WebState>, Path(entity_id): Path<u64>) -> 
 
     let product_name = string_field(&flat, "name");
     let product_sku = string_field(&flat, "sku");
-    let category_tree_html = state.category_tree_html().await.unwrap_or_else(|e| {
-        tracing::warn!("category tree render failed: {e}");
-        String::new()
-    });
+    let (category_tree_html, top_nav_html) = state.nav_fragments().await;
 
     let page = ProductPage {
         title: format!("Product Page - {product_name} - {product_sku} - RustGento"),
         meta_description: format!("Buy {product_name} (SKU: {product_sku})"),
         category_tree_html,
+        top_nav_html,
+        search_query: String::new(),
         media_url: state.media_url.clone(),
         breadcrumbs,
         entity_id,

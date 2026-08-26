@@ -6,7 +6,9 @@
 mod category;
 mod home;
 mod image;
+mod pagination;
 mod product;
+mod search;
 pub mod state;
 mod templates;
 
@@ -20,6 +22,7 @@ pub fn router(state: WebState) -> Router {
         .route("/", get(home::show))
         .route("/category/{id}", get(category::show))
         .route("/product/{id}", get(product::show))
+        .route("/search", get(search::show))
         .route("/image/webp", get(image::show))
         .with_state(state)
 }
@@ -69,6 +72,24 @@ mod tests {
         let app = router(state);
         let response = app.oneshot(Request::builder().uri("/image/webp").body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn search_with_no_query_renders_empty_results() {
+        let Some(state) = test_state().await else { return };
+        let app = router(state);
+        let response = app.oneshot(Request::builder().uri("/search").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn search_by_sku_finds_seeded_product() {
+        let Some(state) = test_state().await else { return };
+        let app = router(state);
+        let response = app.oneshot(Request::builder().uri("/search?q=SAMPLE-SKU-0000").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        assert!(content_type.contains("text/html"));
     }
 
     #[tokio::test]

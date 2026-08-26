@@ -37,6 +37,25 @@ pub async fn find_by_id(pool: &MySqlPool, id: u64) -> Result<Option<Product>, sq
     sqlx::query_as("SELECT * FROM catalog_product_entity WHERE entity_id = ?").bind(id).fetch_optional(pool).await
 }
 
+/// Full-catalog search: matches SKU (a plain column) or the "name" EAV
+/// attribute (passed in as `name_attribute_id` -- the caller resolves it
+/// once rather than this function re-querying `eav_attribute` on every
+/// search) against a case-insensitive substring, ordered by entity_id.
+pub async fn search_ids(pool: &MySqlPool, name_attribute_id: u16, query: &str) -> Result<Vec<u64>, sqlx::Error> {
+    let like = format!("%{query}%");
+    sqlx::query_scalar(
+        "SELECT DISTINCT p.entity_id FROM catalog_product_entity p \
+         LEFT JOIN catalog_product_entity_varchar v ON v.entity_id = p.entity_id AND v.attribute_id = ? \
+         WHERE p.sku LIKE ? OR v.value LIKE ? \
+         ORDER BY p.entity_id",
+    )
+    .bind(name_attribute_id)
+    .bind(&like)
+    .bind(&like)
+    .fetch_all(pool)
+    .await
+}
+
 #[derive(Debug, Clone)]
 pub struct ProductInput {
     pub attribute_set_id: u16,
@@ -290,6 +309,39 @@ mod tests {
         assert!(delete(&pool, id).await.unwrap());
         assert!(find_by_id(&pool, id).await.unwrap().is_none());
         assert!(!delete(&pool, id).await.unwrap(), "deleting an already-gone id reports not-found");
+    }
+
+    #[tokio::test]
+    async fn search_ids_matches_sku_and_name() {
+        let Some(pool) = crate::test_support::test_pool().await else { return };
+
+        sqlx::query("DELETE FROM catalog_product_entity WHERE sku = 'RUST-REPO-SEARCH-TEST'").execute(&pool).await.unwrap();
+        let id = create(
+            &pool,
+            &ProductInput { attribute_set_id: 4, type_id: "simple".into(), sku: "RUST-REPO-SEARCH-TEST".into(), has_options: 0, required_options: 0 },
+        )
+        .await
+        .unwrap();
+
+        let name_attr_id: u16 = sqlx::query_scalar("SELECT attribute_id FROM eav_attribute WHERE entity_type_id = 4 AND attribute_code = 'name'").fetch_one(&pool).await.unwrap();
+        sqlx::query("INSERT INTO catalog_product_entity_varchar (attribute_id, store_id, entity_id, value) VALUES (?, 0, ?, 'Repository Search Widget')")
+            .bind(name_attr_id)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let by_sku = search_ids(&pool, name_attr_id, "REPO-SEARCH-TEST").await.unwrap();
+        assert!(by_sku.contains(&id), "should match by SKU substring");
+
+        let by_name = search_ids(&pool, name_attr_id, "Search Widget").await.unwrap();
+        assert!(by_name.contains(&id), "should match by name substring");
+
+        let no_match = search_ids(&pool, name_attr_id, "definitely-not-a-real-query-xyz").await.unwrap();
+        assert!(!no_match.contains(&id));
+
+        sqlx::query("DELETE FROM catalog_product_entity_varchar WHERE entity_id = ?").bind(id).execute(&pool).await.unwrap();
+        delete(&pool, id).await.unwrap();
     }
 
     #[tokio::test]

@@ -46,13 +46,15 @@ pipeline, and REST/GraphQL/realtime APIs on top.
 - **`api-realtime`** — a small HMAC-signed API for price/inventory lookups
   meant for latency-sensitive callers (checkout, cart) that don't want the
   overhead of a full GraphQL round trip
-- **`web`** — server-rendered storefront pages (category listing with
-  pagination, product detail with breadcrumbs/gallery/price-index table),
-  built on `askama` (compile-time-checked templates -- a template
-  referencing a field the page struct doesn't have fails `cargo build`,
-  not a live request) plus an `/image/webp` resize-and-reencode proxy
-  (jpeg/png/webp, letterboxed to an exact box when both dimensions are
-  given, disk-cached)
+- **`web`** — server-rendered storefront: a homepage (hero slider, live
+  catalog stats), category listing with pagination, product detail with
+  breadcrumbs/gallery/price-index table, and full-text product search
+  (SKU + name) -- plus a desktop dropdown menu and mobile slide-out menu,
+  both built from the same cached category tree. Built on `askama`
+  (compile-time-checked templates -- a template referencing a field the
+  page struct doesn't have fails `cargo build`, not a live request) plus
+  an `/image/webp` resize-and-reencode proxy (jpeg/png/webp, letterboxed
+  to an exact box when both dimensions are given, disk-cached)
 - **`bin/import_cli.rs`** (`gogento-import`) — standalone CLI for
   benchmarking/running the bulk importer outside the server process
 - **`src/main.rs`** (`gogento-server`) — the HTTP server: all four layers

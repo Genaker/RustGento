@@ -20,6 +20,8 @@ pub struct CategoryPage {
     pub title: String,
     pub meta_description: String,
     pub category_tree_html: String,
+    pub top_nav_html: String,
+    pub search_query: String,
     pub category_id: u64,
     pub category_name: String,
     pub products: Vec<GridProduct>,
@@ -61,6 +63,8 @@ pub struct HomePage {
     pub title: String,
     pub meta_description: String,
     pub category_tree_html: String,
+    pub top_nav_html: String,
+    pub search_query: String,
     pub slides: Vec<Slide>,
     pub product_count: i64,
     pub category_count: i64,
@@ -69,11 +73,31 @@ pub struct HomePage {
 }
 
 #[derive(Template)]
+#[template(path = "search.html")]
+pub struct SearchPage {
+    pub title: String,
+    pub meta_description: String,
+    pub category_tree_html: String,
+    pub top_nav_html: String,
+    pub search_query: String,
+    pub products: Vec<GridProduct>,
+    pub media_url: String,
+    pub page: usize,
+    pub total_pages: usize,
+    pub limit: usize,
+    pub page_numbers: Vec<usize>,
+    pub prev_page: usize,
+    pub next_page: usize,
+}
+
+#[derive(Template)]
 #[template(path = "product.html")]
 pub struct ProductPage {
     pub title: String,
     pub meta_description: String,
     pub category_tree_html: String,
+    pub top_nav_html: String,
+    pub search_query: String,
     pub media_url: String,
     pub breadcrumbs: Vec<Breadcrumb>,
     pub entity_id: u64,
