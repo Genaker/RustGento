@@ -236,51 +236,56 @@ pub async fn flush_custom_options(pool: &MySqlPool, products: &[ProductCustomOpt
         q.execute(&mut *tx).await?;
     }
 
-    for p in products {
-        for opt in &p.options {
-            let result = sqlx::query(
-                "INSERT INTO catalog_product_option \
-                 (product_id, type, title, is_require, price, price_type, sku, max_characters, sort_order) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(p.product_id as u32)
-            .bind(&opt.option_type)
-            .bind(&opt.title)
-            .bind(opt.is_require)
-            .bind(opt.price)
-            .bind(&opt.price_type)
-            .bind(&opt.sku)
-            .bind(opt.max_characters)
-            .bind(opt.sort_order)
-            .execute(&mut *tx)
-            .await?;
-            let option_id = result.last_insert_id();
+    // Flatten every option across every product into one list so it can be
+    // bulk-inserted in chunked multi-row INSERTs instead of one INSERT per
+    // option -- each chunk's option_ids are computed from LAST_INSERT_ID()
+    // plus offset, the same consecutive-auto-increment trick flush_gallery
+    // already uses for catalog_product_entity_media_gallery.
+    let flat: Vec<(u64, &CustomOption)> = products.iter().flat_map(|p| p.options.iter().map(move |opt| (p.product_id, opt))).collect();
 
-            if opt.values.is_empty() {
-                continue;
-            }
-            let values: Vec<ProductOptionTypeValue> = opt
-                .values
-                .iter()
-                .map(|v| ProductOptionTypeValue {
-                    option_type_id: 0,
-                    option_id: option_id as u32,
-                    title: v.title.clone(),
-                    price: v.price,
-                    price_type: v.price_type.clone(),
-                    sku: v.sku.clone(),
-                    sort_order: v.sort_order,
-                })
-                .collect();
-            for chunk in values.chunks(batch_size.max(1)) {
-                let mut qb: QueryBuilder<MySql> =
-                    QueryBuilder::new("INSERT INTO catalog_product_option_type_value (option_id, title, price, price_type, sku, sort_order) ");
-                qb.push_values(chunk, |mut b, v: &ProductOptionTypeValue| {
-                    b.push_bind(v.option_id).push_bind(&v.title).push_bind(v.price).push_bind(&v.price_type).push_bind(&v.sku).push_bind(v.sort_order);
-                });
-                qb.build().execute(&mut *tx).await?;
-            }
+    let mut option_ids = Vec::with_capacity(flat.len());
+    for chunk in flat.chunks(batch_size.max(1)) {
+        let mut qb: QueryBuilder<MySql> = QueryBuilder::new(
+            "INSERT INTO catalog_product_option (product_id, type, title, is_require, price, price_type, sku, max_characters, sort_order) ",
+        );
+        qb.push_values(chunk, |mut b, (product_id, opt): &(u64, &CustomOption)| {
+            b.push_bind(*product_id as u32)
+                .push_bind(&opt.option_type)
+                .push_bind(&opt.title)
+                .push_bind(opt.is_require)
+                .push_bind(opt.price)
+                .push_bind(&opt.price_type)
+                .push_bind(&opt.sku)
+                .push_bind(opt.max_characters)
+                .push_bind(opt.sort_order);
+        });
+        let result = qb.build().execute(&mut *tx).await?;
+        let first_id = result.last_insert_id();
+        option_ids.extend((0..chunk.len() as u64).map(|i| first_id + i));
+    }
+
+    let mut value_rows = Vec::new();
+    for (i, (_, opt)) in flat.iter().enumerate() {
+        let option_id = option_ids[i] as u32;
+        for v in &opt.values {
+            value_rows.push(ProductOptionTypeValue {
+                option_type_id: 0,
+                option_id,
+                title: v.title.clone(),
+                price: v.price,
+                price_type: v.price_type.clone(),
+                sku: v.sku.clone(),
+                sort_order: v.sort_order,
+            });
         }
+    }
+    for chunk in value_rows.chunks(batch_size.max(1)) {
+        let mut qb: QueryBuilder<MySql> =
+            QueryBuilder::new("INSERT INTO catalog_product_option_type_value (option_id, title, price, price_type, sku, sort_order) ");
+        qb.push_values(chunk, |mut b, v: &ProductOptionTypeValue| {
+            b.push_bind(v.option_id).push_bind(&v.title).push_bind(v.price).push_bind(&v.price_type).push_bind(&v.sku).push_bind(v.sort_order);
+        });
+        qb.build().execute(&mut *tx).await?;
     }
 
     tx.commit().await

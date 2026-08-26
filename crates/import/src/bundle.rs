@@ -233,54 +233,60 @@ pub async fn flush_bundle_options(pool: &MySqlPool, products: &[ParentBundleOpti
         q.execute(&mut *tx).await?;
     }
 
-    for p in products {
-        for (pos, opt) in p.options.iter().enumerate() {
-            let result = sqlx::query("INSERT INTO catalog_product_bundle_option (parent_id, required, position, type, title) VALUES (?, ?, ?, ?, ?)")
-                .bind(p.product_id as u32)
-                .bind(opt.required)
-                .bind(pos as i64)
-                .bind(&opt.option_type)
-                .bind(&opt.title)
-                .execute(&mut *tx)
-                .await?;
-            let option_id = result.last_insert_id();
+    // Flatten every option across every product into one list, same
+    // batched-insert-then-backfilled-ID approach as flush_custom_options:
+    // chunked multi-row INSERTs instead of one INSERT per option.
+    let flat: Vec<(u64, i64, &BundleOption)> = products
+        .iter()
+        .flat_map(|p| p.options.iter().enumerate().map(move |(pos, opt)| (p.product_id, pos as i64, opt)))
+        .collect();
 
-            let selections: Vec<ProductBundleSelection> = opt
-                .selections
-                .iter()
-                .enumerate()
-                .map(|(i, s)| ProductBundleSelection {
-                    selection_id: 0,
-                    option_id: option_id as u32,
-                    parent_product_id: p.product_id as u32,
-                    product_id: s.product_id as u32,
-                    position: i as i64,
-                    is_default: s.is_default,
-                    selection_qty: s.qty,
-                    selection_price_value: s.price_value,
-                    selection_price_type: s.price_type.clone(),
-                    selection_can_change_qty: s.can_change_qty,
-                })
-                .collect();
-            for chunk in selections.chunks(batch_size.max(1)) {
-                let mut qb: QueryBuilder<MySql> = QueryBuilder::new(
-                    "INSERT INTO catalog_product_bundle_selection \
-                     (option_id, parent_product_id, product_id, position, is_default, selection_qty, selection_price_value, selection_price_type, selection_can_change_qty) ",
-                );
-                qb.push_values(chunk, |mut b, s: &ProductBundleSelection| {
-                    b.push_bind(s.option_id)
-                        .push_bind(s.parent_product_id)
-                        .push_bind(s.product_id)
-                        .push_bind(s.position)
-                        .push_bind(s.is_default)
-                        .push_bind(s.selection_qty)
-                        .push_bind(s.selection_price_value)
-                        .push_bind(&s.selection_price_type)
-                        .push_bind(s.selection_can_change_qty);
-                });
-                qb.build().execute(&mut *tx).await?;
-            }
+    let mut option_ids = Vec::with_capacity(flat.len());
+    for chunk in flat.chunks(batch_size.max(1)) {
+        let mut qb: QueryBuilder<MySql> = QueryBuilder::new("INSERT INTO catalog_product_bundle_option (parent_id, required, position, type, title) ");
+        qb.push_values(chunk, |mut b, (parent_id, position, opt): &(u64, i64, &BundleOption)| {
+            b.push_bind(*parent_id as u32).push_bind(opt.required).push_bind(*position).push_bind(&opt.option_type).push_bind(&opt.title);
+        });
+        let result = qb.build().execute(&mut *tx).await?;
+        let first_id = result.last_insert_id();
+        option_ids.extend((0..chunk.len() as u64).map(|i| first_id + i));
+    }
+
+    let mut selection_rows = Vec::new();
+    for (i, (parent_id, _, opt)) in flat.iter().enumerate() {
+        let option_id = option_ids[i] as u32;
+        for (sel_pos, sel) in opt.selections.iter().enumerate() {
+            selection_rows.push(ProductBundleSelection {
+                selection_id: 0,
+                option_id,
+                parent_product_id: *parent_id as u32,
+                product_id: sel.product_id as u32,
+                position: sel_pos as i64,
+                is_default: sel.is_default,
+                selection_qty: sel.qty,
+                selection_price_value: sel.price_value,
+                selection_price_type: sel.price_type.clone(),
+                selection_can_change_qty: sel.can_change_qty,
+            });
         }
+    }
+    for chunk in selection_rows.chunks(batch_size.max(1)) {
+        let mut qb: QueryBuilder<MySql> = QueryBuilder::new(
+            "INSERT INTO catalog_product_bundle_selection \
+             (option_id, parent_product_id, product_id, position, is_default, selection_qty, selection_price_value, selection_price_type, selection_can_change_qty) ",
+        );
+        qb.push_values(chunk, |mut b, s: &ProductBundleSelection| {
+            b.push_bind(s.option_id)
+                .push_bind(s.parent_product_id)
+                .push_bind(s.product_id)
+                .push_bind(s.position)
+                .push_bind(s.is_default)
+                .push_bind(s.selection_qty)
+                .push_bind(s.selection_price_value)
+                .push_bind(&s.selection_price_type)
+                .push_bind(s.selection_can_change_qty);
+        });
+        qb.build().execute(&mut *tx).await?;
     }
 
     tx.commit().await
