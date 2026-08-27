@@ -1,3 +1,4 @@
 /target
 .env
 /var/cache/
+.DS_Store

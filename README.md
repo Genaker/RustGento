@@ -200,6 +200,28 @@ resolution + entity insert), and the wide per-run spread (188-428ms on
 either side) reflects that round-trip variance far more than any remaining
 algorithmic difference between the two.
 
+**Memory usage on the same benchmark**: `/usr/bin/time -l` around each
+binary/process, same 1000-row/13-attribute CSV. PHP has three variants in
+`bench/`: plain PDO (no framework), Magento bootstrapped but still writing
+via this project's own PDO code, and Magento's own
+`Model::save()` per row (no bulk API — the way someone scripting against
+Magento directly would write it):
+
+| | Bootstrap | Import (1000 rows) | Max RSS |
+|---|---|---|---|
+| PHP, plain PDO | — | 261ms | 24.1 MB |
+| PHP, Magento bootstrap + PDO | 0.32s | 2.90s | 35.2 MB |
+| PHP, Magento model (`::save()`) | 0.25s | 120.6s | 66.7 MB |
+| Go | — | 351ms | 15.5 MB |
+| Rust | — | 295ms | 8.1 MB |
+
+The Magento-model row is the odd one out on purpose: it isn't "Magento is
+slow," it's what one full load/validate/persist per row costs relative to
+bypassing that abstraction with batched raw SQL — the exact tradeoff this
+project's Go and Rust reimplementations exist to explore. See each
+script's own header comment in `bench/` for full methodology and caveats
+(schema differences, indexer mode, run counts).
+
 ## Performance: MySQL vs. Postgres, 10k products / 40 attributes
 
 A larger, wider-schema run of the same importer against both drivers: a
