@@ -235,40 +235,61 @@ fine:
 
 | | Bootstrap | Import (1000 rows) | Max RSS |
 |---|---|---|---|
-| Go | — | ~2.4s | ~15.2 MB |
+| Go, raw SQL (`--raw-sql`) | — | ~2.4s | ~15.2 MB |
+| Go, default (GORM `CreateInBatches`) | — | ~2.4s | ~15.4 MB |
 | Rust | — | ~2.3s | ~8.4 MB |
-| PHP, plain PDO | — | ~3.9s | 24.2 MB |
-| PHP, Magento bootstrap + PDO | 0.32s | 2.90s | 35.2 MB |
+| PHP, plain PDO | — | ~4.3s | 24.2 MB |
+| PHP, Magento bootstrap + PDO | ~0.38s | ~5.4s | 37.3 MB |
 | Laravel, Eloquent `upsert()` (laragento) | — | ~6.9s | 47.5 MB |
 | Node.js, Sequelize `bulkCreate` upsert (nodejento) | — | ~6.9s | ~90 MB |
 | Python, SQLAlchemy Core `upsert` (PyGento) | — | ~7.7s | 46.9 MB |
-| PHP, Magento model (`::save()`) | 0.25s | 120.6s | 66.7 MB |
+| PHP, Magento model (`::save()`) | ~1.5s | ~135.4s | 70.0 MB |
 
-The two Magento-bootstrap rows are carried forward from an earlier
-session, not re-measured in this pass — the bootstrap benchmark's Redis
-cache backend (`app/etc/env.php` resolving the container hostname
-`redis`, which only resolves from inside the Docker network, not from a
-plain host PHP process) needed unrelated fixing first, and it wasn't
-worth chasing an infra hiccup this session just to re-time a row this
-family already treats as a fixed reference point rather than something
-to optimize. They were already targeting this same real database before
-this pass, so they still belong in this table; the number itself is
-just from an earlier sitting.
+**The two Magento-bootstrap rows above were re-measured, and the
+original numbers turned out to be wrong in a more serious way than
+session-to-session noise.** This Magento install's `app/etc/env.php` had
+its actual **database connection** (not just its Redis cache) pointed at
+a Postgres container via a custom `Morozov\PgCompat` compatibility
+adapter — a `di.xml` preference that unconditionally substitutes
+`Magento\Framework\DB\Adapter\Pdo\Mysql` regardless of what `env.php`
+says. The Postgres container had been stopped for hours, so the
+bootstrap benchmark was silently failing before this pass; whatever
+session originally produced "0.32s / 2.90s" and "0.25s / 120.6s" was
+running Magento's bootstrap against Postgres, not the MySQL instance
+every other row in this table uses — never a valid comparison, not even
+before accounting for noise. Fixed for this measurement by temporarily
+disabling `Morozov_PgCompat` and pointing `env.php` at
+`mage-postgres_mysql_1` directly, taking the numbers, then restoring
+both files from a pre-edit backup and re-enabling the module — this
+project's actual active work (per its own most recent commit) is
+building that Postgres adapter, and this benchmark has no business
+leaving it altered. Bootstrap cost roughly doubled (0.32s → 0.38s
+bootstrap alone is close, but total import time moved 2.90s → 5.4s and
+120.6s → 135.4s) — plausibly just this session's generally heavier DB
+load (see the correction above), but the two numbers are at least now
+verified to be measuring the same database engine as everything else.
 
-With everything on one database, the real shape becomes clearer: Go and
-Rust (~2.3-2.4s) and plain PDO (~3.9s) — all raw SQL or a thin GORM/sqlx
-layer, no ORM query-builder overhead — form one tier; the three ORM-tier
-batched-upsert implementations (Laravel, Node, PyGento, ~6.9-7.7s) form a
-second tier roughly 2-3x slower, clustered tightly together regardless of
+With everything on one database engine, the real shape is: Rust, both
+Go modes, and plain PDO (~2.3-4.3s) — raw SQL or a thin GORM/sqlx layer —
+form one tier; Magento's own bootstrap+PDO joins closer to the second
+tier at ~5.4s; the three ORM-tier batched-upsert implementations
+(Laravel, Node, PyGento, ~6.9-7.7s) cluster together regardless of
 language; and `Model::save()`'s per-row full-object-lifecycle path
-(120.6s) is in a class of its own, 15-50x slower than anything batched.
-The gap between tier one and tier two is the ORM query-builder itself
-(parameter binding, escaping, hook/validation plumbing even when
-disabled), not the language runtime — PyGento (Python), Laravel (PHP),
-and NodeGento (Node) land within 15% of each other despite being three
-different languages, while raw-SQL Go and thin-wrapper-sqlx Rust are both
-2-3x faster than all three, and thin-wrapper-PDO PHP splits the
-difference.
+(~135.4s) is in a class of its own, ~25-60x slower than anything batched.
+
+The interesting result isn't a clean "ORMs are slow" story, though: Go's
+own ORM (GORM) shows **no tax at all** — `db.Clauses(clause.OnConflict{...}).CreateInBatches(...)`
+lands within noise of hand-written raw SQL on both time and memory,
+confirmed with 5 repeated runs. But Laravel, Node, and PyGento's ORMs
+are all ~3x slower doing the same logical operation, despite each one
+independently confirmed (via query logs, not assumption) to compile down
+to the same single batched `INSERT ... ON DUPLICATE KEY UPDATE`
+per chunk that GORM and raw SQL use — no N+1 queries hiding anywhere.
+So the gap isn't "has an ORM" vs. "doesn't" — it's something specific to
+how Sequelize/Eloquent/SQLAlchemy execute a batch upsert that GORM's
+implementation doesn't share. That's not yet isolated to a root cause,
+and it's called out here as an open question rather than a tidy
+explanation forced onto data that doesn't support one.
 
 Node originally showed ~155MB here: `Models/init-models.js` eagerly
 `require()`s and `sequelize.define()`s all 347 sequelize-auto-generated
