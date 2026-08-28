@@ -203,24 +203,129 @@ algorithmic difference between the two.
 **Memory usage on the same benchmark**: `/usr/bin/time -l` around each
 binary/process, same 1000-row/13-attribute CSV. PHP has three variants in
 `bench/`: plain PDO (no framework), Magento bootstrapped but still writing
-via this project's own PDO code, and Magento's own
-`Model::save()` per row (no bulk API — the way someone scripting against
-Magento directly would write it):
+via this project's own PDO code, and Magento's own `Model::save()` per row
+(no bulk API — the way someone scripting against Magento directly would
+write it). Three more languages joined later, each targeting the same real
+Magento database the Magento-targeting PHP rows use: Laravel, in the
+sibling [laragento](https://github.com/Genaker/laragento) repo — a real
+Laravel 11 app whose `magmi:import` Artisan command batch-upserts via
+Eloquent's own `DB::table(...)->upsert(...)`; Python, in the sibling
+[PyGento](https://github.com/Genaker/PyGento) repo — `import_products.py`,
+batch-upserting via SQLAlchemy Core's `insert().on_duplicate_key_update()`;
+and Node.js, in the sibling [nodejento](https://github.com/Genaker/nodejento)
+repo — `import_products.js`, batch-upserting via Sequelize's
+`Model.bulkCreate(rows, {updateOnDuplicate: [...]})`, which compiles to the
+same one-multi-row-`INSERT ... ON DUPLICATE KEY UPDATE`-per-chunk shape as
+everywhere else in this family.
+
+**All eight rows below now target the same database.** Go, Rust, and
+plain PDO originally ran against a separate, leaner synthetic schema
+(`gogento-mysql`: no FK constraints, no pre-existing rows) rather than the
+real Magento sample-data DB (`mage-postgres_mysql_1`: FK constraints on
+every EAV table, 17,500+ existing rows) the other five already used —
+an apples-to-oranges gap in the original table. All three were re-pointed
+at the real DB (`MYSQL_HOST=127.0.0.1 MYSQL_PORT=3308`, same `.env`
+convention every implementation already shares) and re-measured there
+(5 runs each, median reported) — both Go's and Rust's importers already
+resolved every `attribute_id` dynamically via `eav_attribute` rather than
+hardcoding one, so no code changes were needed, just a different
+connection target. This is a disposable, test-only database, so pointing
+more benchmarks at it and writing/deleting `BENCH-STD-*` rows freely is
+fine:
 
 | | Bootstrap | Import (1000 rows) | Max RSS |
 |---|---|---|---|
-| PHP, plain PDO | — | 261ms | 24.1 MB |
+| Go | — | ~2.4s | ~15.2 MB |
+| Rust | — | ~2.3s | ~8.4 MB |
+| PHP, plain PDO | — | ~3.9s | 24.2 MB |
 | PHP, Magento bootstrap + PDO | 0.32s | 2.90s | 35.2 MB |
+| Laravel, Eloquent `upsert()` (laragento) | — | ~6.9s | 47.5 MB |
+| Node.js, Sequelize `bulkCreate` upsert (nodejento) | — | ~6.9s | ~90 MB |
+| Python, SQLAlchemy Core `upsert` (PyGento) | — | ~7.7s | 46.9 MB |
 | PHP, Magento model (`::save()`) | 0.25s | 120.6s | 66.7 MB |
-| Go | — | 351ms | 15.5 MB |
-| Rust | — | 295ms | 8.1 MB |
+
+The two Magento-bootstrap rows are carried forward from an earlier
+session, not re-measured in this pass — the bootstrap benchmark's Redis
+cache backend (`app/etc/env.php` resolving the container hostname
+`redis`, which only resolves from inside the Docker network, not from a
+plain host PHP process) needed unrelated fixing first, and it wasn't
+worth chasing an infra hiccup this session just to re-time a row this
+family already treats as a fixed reference point rather than something
+to optimize. They were already targeting this same real database before
+this pass, so they still belong in this table; the number itself is
+just from an earlier sitting.
+
+With everything on one database, the real shape becomes clearer: Go and
+Rust (~2.3-2.4s) and plain PDO (~3.9s) — all raw SQL or a thin GORM/sqlx
+layer, no ORM query-builder overhead — form one tier; the three ORM-tier
+batched-upsert implementations (Laravel, Node, PyGento, ~6.9-7.7s) form a
+second tier roughly 2-3x slower, clustered tightly together regardless of
+language; and `Model::save()`'s per-row full-object-lifecycle path
+(120.6s) is in a class of its own, 15-50x slower than anything batched.
+The gap between tier one and tier two is the ORM query-builder itself
+(parameter binding, escaping, hook/validation plumbing even when
+disabled), not the language runtime — PyGento (Python), Laravel (PHP),
+and NodeGento (Node) land within 15% of each other despite being three
+different languages, while raw-SQL Go and thin-wrapper-sqlx Rust are both
+2-3x faster than all three, and thin-wrapper-PDO PHP splits the
+difference.
+
+Node originally showed ~155MB here: `Models/init-models.js` eagerly
+`require()`s and `sequelize.define()`s all 347 sequelize-auto-generated
+model files (every Magento core table, not just the 7 this importer
+touches) on every CLI invocation, a cost Laravel and PyGento don't pay
+since they only load the handful of models their importer actually
+touches. Fixed in nodejento via a `getLiteModels()` path that defines only
+the needed tables directly from their individual model files, skipping
+`init-models.js`'s full graph and association wiring — measured at ~20ms
+vs ~1,330ms in isolation (~65x), which is what dropped Max RSS from ~155MB
+to ~90MB. Full detail and the isolated-timing table are in nodejento's own
+README. (nodejento's web storefront, by contrast, is a long-lived process
+that genuinely benefits from loading the full model graph once and reusing
+it — it still uses the original `getModels()`, deliberately.)
 
 The Magento-model row is the odd one out on purpose: it isn't "Magento is
 slow," it's what one full load/validate/persist per row costs relative to
 bypassing that abstraction with batched raw SQL — the exact tradeoff this
-project's Go and Rust reimplementations exist to explore. See each
-script's own header comment in `bench/` for full methodology and caveats
-(schema differences, indexer mode, run counts).
+project's Go and Rust reimplementations exist to explore. The Laravel and
+PyGento rows sit between the two PHP-on-real-Magento numbers for the same
+reason: both are properly batched (unlike `Model::save()`), so they avoid
+that 41x-scale penalty almost entirely, but each ORM's query-builder
+layer is still measurably heavier than hand-rolled PDO on the identical
+statement shape against the identical database.
+
+**A correction, left in deliberately**: an earlier version of this table
+had PyGento at 8.68s — nearly 2x Laravel's number. That comparison was
+wrong, not because of a code bug, but a measurement one: the two numbers
+were captured in separate sessions against the same shared, real,
+actively-used MySQL instance, and this instance's load varies a lot
+run to run (confirmed directly: three back-to-back Laravel/PyGento pairs,
+run immediately after each other with the host otherwise idle, landed at
+4.29s/4.55s median — within ~6%, not 2x). A `general_log`-driven check
+of the actual SQL also confirmed PyGento's batching was never the
+problem: `insert(table).values(chunk).on_duplicate_key_update(...)`
+compiles to one genuine multi-row `INSERT ... ON DUPLICATE KEY UPDATE`
+per chunk, same as everywhere else in this benchmark family, not N
+separate statements. The lesson: on a shared database, "measure once,
+each language on its own turn" produces numbers that *look* precise but
+aren't comparable — only back-to-back, same-session runs are. See each
+script's own header comment in `bench/` (and laragento's/PyGento's own
+READMEs) for full methodology and caveats (schema differences, indexer
+mode, run counts).
+
+**The table above reflects that lesson applied a second time.** When
+nodejento was added (2026-08-27), Laravel and PyGento were re-measured
+in the same session immediately before and after nodejento's runs (3
+runs each, host otherwise idle, no Time Machine/Spotlight activity),
+rather than reusing the ~4.4s/~4.5s numbers from the earlier session —
+and this session's host/DB load was simply heavier: all three landed at
+6.9-7.7s, roughly 50-70% slower across the board than the original
+measurement, with their *relative order* (Laravel and Node effectively
+tied, PyGento a bit behind) the only thing that held up. The ~4.4s/~4.5s
+numbers were real for their session, just not for this one — which is
+the whole point: absolute import times on this shared real-Magento
+database are only meaningful compared against numbers from the same
+sitting, never against a table from a different day.
 
 ## Performance: MySQL vs. Postgres, 10k products / 40 attributes
 
